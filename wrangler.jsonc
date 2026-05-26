@@ -13,6 +13,13 @@
 	"upload_source_maps": true,
 	"compatibility_flags": [
 		"nodejs_compat"
+	],
+	"rules": [
+		{
+			"type": "Text",
+			"globs": ["**/*.php"],
+			"fallthrough": true
+		}
 	]
 	/**
 	 * Smart Placement

@@ -165,3 +165,6 @@ dist
 .env*
 !.env.example
 .wrangler/
+
+# php-wasm-worker build cache (upstream php-wasm checkout + Docker volumes)
+.build-cache/
