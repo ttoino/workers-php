@@ -17,7 +17,17 @@ readonly CACHE_DIR="${REPO_ROOT}/.build-cache"
 readonly UPSTREAM_REPO="https://github.com/seanmorris/php-wasm.git"
 readonly UPSTREAM_DIR="${CACHE_DIR}/php-wasm"
 readonly PHP_VERSION="${PHP_VERSION:-8.5}"
-readonly EMSDK_VERSION="${EMSDK_VERSION:-3.1.43}"
+# 3.1.74 is the newest EMSDK 3.1.x that builds php-wasm successfully with
+# MAIN_MODULE=0. EMSDK 4.x breaks at the autotools 3rd-party libraries
+# (libjpeg, etc.) due to changed wasm-ld behavior. EMSDK 3.1.74's wasm-ld
+# warns about a couple of unknown -z flags during PHP linking but produces
+# a working artifact.
+#
+# Sean's original bisect (in upstream Dockerfile comments) listed 3.1.45+
+# as "Broken (cloudflare)" but that was specifically for MAIN_MODULE=1
+# builds — the failure mode was the runtime `new WebAssembly.Module(bytes)`
+# call paths Workers forbids, all of which are dead code when MAIN_MODULE=0.
+readonly EMSDK_VERSION="${EMSDK_VERSION:-3.1.74}"
 
 readonly C_BOLD=$'\033[1m'
 readonly C_DIM=$'\033[2m'

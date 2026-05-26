@@ -81,7 +81,27 @@ Set as environment variables on the `npm run build-wasm` invocation:
 | Variable | Default | Notes |
 |---|---|---|
 | `PHP_VERSION`   | `8.5`    | One of `8.0` … `8.5`. |
-| `EMSDK_VERSION` | `3.1.43` | Only `3.1.43`/`3.1.44` confirmed Cloudflare-compatible. |
+| `EMSDK_VERSION` | `3.1.74` | Newest EMSDK 3.1.x that successfully builds php-wasm with `MAIN_MODULE=0`. See note below. |
+
+### Note on EMSDK versions
+
+Sean's upstream Dockerfile comments label EMSDK 3.1.45+ as "Broken (cloudflare)",
+but that bisect targeted `MAIN_MODULE=1` builds — the breakage was the
+runtime `new WebAssembly.Module(bytes)` call paths Cloudflare Workers forbids,
+all of which are dead code when `MAIN_MODULE=0`.
+
+I tested:
+
+- **EMSDK 3.1.43**: works (the original Cloudflare-safe pin).
+- **EMSDK 3.1.74**: works (current default). Slightly smaller / faster output.
+- **EMSDK 4.0.23**: does **not** work — `wasm-ld` in EMSDK 4 no longer
+  auto-resolves bare SONAME references (e.g. `libjpeg.so.9`), breaking the
+  autotools-style builds of `libjpeg`/`libpng`/etc. that upstream's
+  `static.mak` files invoke. Not a Workers-compat issue; a build-script
+  incompatibility with EMSDK 4's linker.
+
+Newer EMSDK 3.1.x versions between `.74` and the latest `.7x` series were
+not exhaustively tested but should behave similarly.
 
 To change the extension set (`WITH_BCMATH`, `WITH_LIBZIP`, etc.), edit
 `build/php-wasm.env`.
