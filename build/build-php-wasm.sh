@@ -17,16 +17,26 @@ readonly CACHE_DIR="${REPO_ROOT}/.build-cache"
 readonly UPSTREAM_REPO="https://github.com/seanmorris/php-wasm.git"
 readonly UPSTREAM_DIR="${CACHE_DIR}/php-wasm"
 readonly PHP_VERSION="${PHP_VERSION:-8.5}"
-# 3.1.74 is the newest EMSDK 3.1.x that builds php-wasm successfully with
-# MAIN_MODULE=0. EMSDK 4.x breaks at the autotools 3rd-party libraries
-# (libjpeg, etc.) due to changed wasm-ld behavior. EMSDK 3.1.74's wasm-ld
-# warns about a couple of unknown -z flags during PHP linking but produces
-# a working artifact.
+# EMSDK 3.1.74 is the newest version that builds php-wasm successfully
+# with the full extension set. EMSDK 4.x breaks all of upstream's autotools-
+# based 3rd-party library recipes (libjpeg, libxml2, libyaml, ...) because
+# EMSDK 4's wasm-ld no longer silently ignores bare SONAME references like
+# `libjpeg.so.9` or `testdso.so` that libtool emits in -shared mode. EMSDK
+# 3.1.x's emcc swallows those as "ignoring unsupported linker flag" warnings;
+# EMSDK 4's passes them through and wasm-ld errors with "cannot open <name>:
+# No such file or directory".
 #
-# Sean's original bisect (in upstream Dockerfile comments) listed 3.1.45+
-# as "Broken (cloudflare)" but that was specifically for MAIN_MODULE=1
-# builds — the failure mode was the runtime `new WebAssembly.Module(bytes)`
-# call paths Workers forbids, all of which are dead code when MAIN_MODULE=0.
+# Disabling only the image libs (jpeg/webp) is insufficient because the same
+# issue hits libxml2 (and likely iconv, openssl, tidy, sqlite-autotools), which
+# would force us to drop DOM/XML/XMLReader/XMLWriter/SimpleXML/Tidy too — a
+# very stripped PHP. A real fix would patch each upstream package's static.mak
+# to swap autotools for cmake-based equivalents, or to pre-create empty SONAME
+# stubs before linking. Not worth it right now.
+#
+# Sean's bisect in upstream's Dockerfile labels EMSDK 3.1.45+ as "Broken
+# (cloudflare)" but that targeted MAIN_MODULE=1 builds — the failure was
+# runtime `new WebAssembly.Module(bytes)` paths Workers forbids, which are
+# dead code with MAIN_MODULE=0.
 readonly EMSDK_VERSION="${EMSDK_VERSION:-3.1.74}"
 
 readonly C_BOLD=$'\033[1m'

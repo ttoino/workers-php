@@ -90,18 +90,30 @@ but that bisect targeted `MAIN_MODULE=1` builds — the breakage was the
 runtime `new WebAssembly.Module(bytes)` call paths Cloudflare Workers forbids,
 all of which are dead code when `MAIN_MODULE=0`.
 
-I tested:
+Tested:
 
 - **EMSDK 3.1.43**: works (the original Cloudflare-safe pin).
 - **EMSDK 3.1.74**: works (current default). Slightly smaller / faster output.
-- **EMSDK 4.0.23**: does **not** work — `wasm-ld` in EMSDK 4 no longer
-  auto-resolves bare SONAME references (e.g. `libjpeg.so.9`), breaking the
-  autotools-style builds of `libjpeg`/`libpng`/etc. that upstream's
-  `static.mak` files invoke. Not a Workers-compat issue; a build-script
-  incompatibility with EMSDK 4's linker.
+- **EMSDK 4.0.23**: does **not** work. `wasm-ld` in EMSDK 4 no longer
+  silently ignores bare SONAME references like `libjpeg.so.9` or `testdso.so`
+  that autotools libtool emits in `-shared` mode. EMSDK 3.1.x's `emcc`
+  translates those into "ignoring unsupported linker flag" warnings; EMSDK
+  4's `emcc` passes them through and `wasm-ld` errors with `cannot open
+  <name>: No such file or directory`.
 
-Newer EMSDK 3.1.x versions between `.74` and the latest `.7x` series were
-not exhaustively tested but should behave similarly.
+  This breaks **every autotools-based 3rd-party library** upstream `php-wasm`
+  builds, not just the image codecs: libxml2 (gates DOM/XML/SimpleXML/
+  XMLReader/XMLWriter), libjpeg, libwebp, iconv, openssl, tidy, libyaml.
+  Disabling just the image libs is insufficient; the next failure is
+  libxml2's `testdso.so` build helper.
+
+  Real fixes would either (a) patch each upstream package's `static.mak` to
+  pre-create empty SONAME stub files before linking, (b) replace the
+  affected autotools recipes with cmake-based equivalents (e.g. libjpeg-turbo),
+  or (c) wait for upstream php-wasm to migrate. Not currently worth it.
+
+Newer EMSDK 3.1.x versions between `.74` and the latest `.7x` series may
+also work but weren't tested.
 
 To change the extension set (`WITH_BCMATH`, `WITH_LIBZIP`, etc.), edit
 `build/php-wasm.env`.
