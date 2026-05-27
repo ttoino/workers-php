@@ -201,6 +201,41 @@ log "Installing build env at ${UPSTREAM_DIR}/.env"
 cp "${BUILD_DIR}/php-wasm.env" "${UPSTREAM_DIR}/.env"
 ok "Env file installed"
 
+# ---------- Patch Makefile to inject extra configure flags ----------
+#
+# Upstream's php-wasm has no `WITH_FILEINFO` knob, but Laravel's UploadedFile
+# requires `ext-fileinfo`. PHP's fileinfo extension lives in PHP core
+# (ext/fileinfo), so a single `--enable-fileinfo` on configure is enough.
+#
+# We can't put `CONFIGURE_FLAGS+= --enable-fileinfo` in our .env because that
+# file is also consumed by `docker compose build`, which rejects make's `+=`
+# operator. Instead we append a line directly to the Makefile, right after
+# the env include, so it runs in the same phase. Idempotent.
+
+if ! grep -qF "# php-wasm-worker: extra configure flags" "${UPSTREAM_DIR}/Makefile"; then
+	log "Patching Makefile to add --enable-fileinfo to CONFIGURE_FLAGS"
+	python3 - "${UPSTREAM_DIR}/Makefile" <<'PYEOF'
+import sys, pathlib
+p = pathlib.Path(sys.argv[1])
+src = p.read_text()
+# Insert just after the first env include block (line ~22-30). Anchor on the
+# `-include ${ENV_FILE}.${PHP_VERSION}` line which sits at the end of that block.
+marker = "-include ${ENV_FILE}.${PHP_VERSION}\n"
+inject = (
+	"\n"
+	"# php-wasm-worker: extra configure flags (no upstream knob for fileinfo)\n"
+	"CONFIGURE_FLAGS+= --enable-fileinfo\n"
+)
+if marker not in src:
+	raise SystemExit(f"marker not found in Makefile: {marker!r}")
+new = src.replace(marker, marker + inject, 1)
+p.write_text(new)
+PYEOF
+	ok "Makefile patched"
+else
+	ok "Makefile already patched"
+fi
+
 # ---------- npm install in the upstream checkout ----------
 #
 # The Makefile uses `$(shell npm ls -p)` to discover sibling packages and
@@ -242,38 +277,79 @@ fi
 [[ -f "${artifact_wasm}" ]] || fail "Expected artifact missing: ${artifact_wasm}"
 ok "Build produced ${artifact_mjs} and ${artifact_wasm}"
 
+# ---------- Finishing wasm-opt pass ----------
+#
+# Upstream's build already runs `wasm-opt -O3` on the artifact, but doing
+# a separate `-Oz --converge` pass with the right feature flags shaves
+# another small chunk (~50–100 KB gzip in practice) by re-running size-first
+# optimizations until they stop helping. `--all-features` is required because
+# the wasm uses bulk-memory and atomics intrinsics that wasm-opt defaults
+# to refusing without explicit feature flags.
+#
+# The pass writes a new file then renames over the original so a failure
+# leaves the upstream artifact intact.
+
+log "Running finishing wasm-opt -Oz --converge pass"
+artifact_size_before=$(stat -c %s "${artifact_wasm}")
+docker run --rm \
+	-v "${UPSTREAM_DIR}:/src" \
+	seanmorris/php-emscripten-builder:latest \
+	/emsdk/upstream/bin/wasm-opt \
+		--all-features \
+		-Oz \
+		--converge \
+		"/src/packages/php-wasm/$(basename "${artifact_wasm}")" \
+		-o "/src/packages/php-wasm/$(basename "${artifact_wasm}").opt"
+
+if [[ -f "${artifact_wasm}.opt" ]]; then
+	artifact_size_after=$(stat -c %s "${artifact_wasm}.opt")
+	mv -f "${artifact_wasm}.opt" "${artifact_wasm}"
+	delta=$(( artifact_size_before - artifact_size_after ))
+	if (( delta > 0 )); then
+		ok "wasm-opt saved ${delta} bytes ($(( delta / 1024 )) KB raw) — $(stat -c %s "${artifact_wasm}") B final"
+	else
+		warn "wasm-opt produced a larger file ($(( -delta )) bytes); keeping anyway"
+	fi
+else
+	fail "wasm-opt pass did not produce ${artifact_wasm}.opt"
+fi
+
 # ---------- Sanity checks ----------
 
 log "Verifying Workers compatibility of php${PHP_VERSION}-web.mjs"
 
 count_in_file() {
 	# grep -c counts matching lines; pcre to span call sites without newlines.
+	# `|| true` keeps pipefail+errexit from killing us when grep finds 0 matches
+	# (exit 1) — we want the count, not the exit status.
 	local pat="$1" file="$2"
-	grep -oE "${pat}" "${file}" 2>/dev/null | wc -l | tr -d ' '
+	{ grep -oE "${pat}" "${file}" 2>/dev/null || true; } | wc -l | tr -d ' '
 }
 
 bad=0
 n_module="$(count_in_file 'new WebAssembly\.Module\(' "${artifact_mjs}")"
-if (( n_module != 0 )); then
+if [[ "${n_module}" != "0" ]]; then
 	fail "${artifact_mjs} contains ${n_module} runtime WebAssembly.Module compilation(s); incompatible with Cloudflare Workers."
 fi
 ok "No runtime WebAssembly.Module(bytes) calls"
 
 n_dylib="$(count_in_file 'loadDylibs' "${artifact_mjs}")"
-if (( n_dylib != 0 )); then
+if [[ "${n_dylib}" != "0" ]]; then
 	warn "${artifact_mjs} contains ${n_dylib} loadDylibs reference(s); MAIN_MODULE may not be 0"
 	bad=1
+else
+	ok "No loadDylibs references"
 fi
-[[ "${n_dylib}" == "0" ]] && ok "No loadDylibs references"
 
 n_dynlib="$(count_in_file 'dynamicLibraries' "${artifact_mjs}")"
-if (( n_dynlib != 0 )); then
+if [[ "${n_dynlib}" != "0" ]]; then
 	warn "${artifact_mjs} contains ${n_dynlib} dynamicLibraries reference(s); MAIN_MODULE may not be 0"
 	bad=1
+else
+	ok "No dynamicLibraries references"
 fi
-[[ "${n_dynlib}" == "0" ]] && ok "No dynamicLibraries references"
 
-if (( bad != 0 )); then
+if [[ "${bad}" != "0" ]]; then
 	fail "Artifact failed Workers-compat checks; refusing to stage"
 fi
 

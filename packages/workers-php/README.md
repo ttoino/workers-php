@@ -12,9 +12,9 @@ Cloudflare Workers runtime (which forbids runtime WebAssembly compilation).
 ## Status
 
 - **PHP 8.5.2** runtime.
-- **Workers Paid plan only.** The PHP wasm itself is ~9 MB gzipped, which
-  exceeds the free plan's 3 MB Worker cap. (The PHP project files don't
-  contribute — they're served as ASSETS, which is free.)
+- **Workers Paid plan only.** The PHP wasm itself is ~8.7 MB gzipped,
+  which exceeds the free plan's 3 MB Worker cap. (The PHP project files
+  don't contribute — they're served as ASSETS, which is free.)
 - Single-tarball mount mode. Per-file lazy mount is on the roadmap.
 - Tested with Laravel 13 and basic vanilla PHP. Should work for any PHP
   app whose extension requirements are satisfied (see below).
@@ -193,8 +193,8 @@ If you need to drive PHP yourself, the package also exports:
 
 ## Limitations
 
-- **Workers Free plan is unsupported.** The PHP wasm alone is ~9 MB gz,
-  exceeding the free plan's 3 MB Worker bundle cap.
+- **Workers Free plan is unsupported.** The PHP wasm alone is ~8.7 MB
+  gz, exceeding the free plan's 3 MB Worker bundle cap.
 - **Persistent storage.** The wasm filesystem is RAM-only and is discarded
   when the isolate is reclaimed. SQLite/file writes work between requests
   in the same isolate, but disappear when the isolate dies. For real
@@ -212,19 +212,22 @@ If you need to drive PHP yourself, the package also exports:
 - **Memory.** Workers' 128 MB isolate cap. The mounted tar plus the wasm
   heap means projects up to ~50 MB unpacked are comfortable; larger may OOM.
 - **Compiled-in PHP extensions** (as of the bundled wasm):
-  bcmath, calendar, ctype, date, dom, exif, filter, gd, hash, iconv,
-  json, libxml, openssl, pcre, pdo, pdo_sqlite, phar, random, reflection,
-  session, simplexml, spl, sqlite3, standard, tidy, tokenizer, xml,
-  xmlreader, xmlwriter, yaml, zip, zlib.
-- **Missing extensions:** `mbstring` (Laravel falls back to the polyfill),
-  `fileinfo`, `curl`, `intl`.
+  bcmath, calendar, ctype, date, dom, exif, fileinfo, filter, hash,
+  iconv, json, libxml, openssl, pcre, pdo, pdo_sqlite, phar, random,
+  reflection, session, simplexml, spl, sqlite3, standard, tidy,
+  tokenizer, xml, xmlreader, xmlwriter, yaml, zip, zlib.
+- **Missing extensions:** `mbstring` (Laravel falls back to the
+  `symfony/polyfill-mbstring` shim it ships with), `curl`, `intl`,
+  `gd` (image generation; dropped to keep the bundle under the 10 MB
+  Worker cap). Re-enable any of them by editing `build/php-wasm.env`
+  and rebuilding.
 
 ## Future work
 
 - D1 / KV / R2 PDO adapters so PHP code can natively query Cloudflare
   storage primitives.
 - Per-file lazy mount mode for larger codebases.
-- mbstring / fileinfo / intl in the bundled wasm.
+- mbstring / curl / intl in the bundled wasm.
 - Multiple PHP versions selectable at build time.
 
 ## License

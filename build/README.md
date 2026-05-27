@@ -116,7 +116,14 @@ Newer EMSDK 3.1.x versions between `.74` and the latest `.7x` series may
 also work but weren't tested.
 
 To change the extension set (`WITH_BCMATH`, `WITH_LIBZIP`, etc.), edit
-`build/php-wasm.env`.
+`build/php-wasm.env`. PHP `./configure` flags that have no `WITH_*` knob
+upstream (e.g. `--enable-fileinfo`) are injected by `build-php-wasm.sh`
+itself, which patches the upstream Makefile right after the env include.
+
+After the upstream `make web-mjs` produces the wasm, `build-php-wasm.sh`
+runs a finishing `wasm-opt --all-features -Oz --converge` pass that
+shaves off another ~0.8 MB raw / ~60-250 KB gzipped depending on the
+extension set.
 
 ## Verifying a build is Workers-compatible
 

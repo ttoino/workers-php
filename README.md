@@ -52,7 +52,7 @@ npm test                   # vitest, runs inside the @cloudflare/vitest-pool-wor
 
 ## What's where
 
-- **Worker bundle size**: ~9 MB gzipped (the PHP wasm dominates). Fits the
+- **Worker bundle size**: ~8.7 MB gzipped (the PHP wasm dominates). Fits the
   Workers Paid plan's 10 MB cap; **does not fit** the free plan.
 - **ASSETS bundle**: a single `app.tar.gz` containing the PHP project, ~5 KB
   for the demo. ASSETS storage is free.
