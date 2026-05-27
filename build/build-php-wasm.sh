@@ -294,7 +294,7 @@ log "Artifact sizes: $(du -h "${artifact_mjs}" | cut -f1) mjs, ${wasm_size_mb} M
 # uses `navigator.locks.request` — neither works in Cloudflare Workers. We
 # keep our hand-written wasm/PhpWeb.mjs (committed; not overwritten by build).
 
-readonly STAGE_DIR="${REPO_ROOT}/wasm"
+readonly STAGE_DIR="${REPO_ROOT}/packages/workers-php/src/wasm"
 
 stage_one() {
 	local src="$1" name="$2"

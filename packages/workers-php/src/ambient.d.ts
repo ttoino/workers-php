@@ -3,6 +3,11 @@ declare module "*.wasm" {
 	export default module;
 }
 
+declare module "*.bin" {
+	const data: ArrayBuffer;
+	export default data;
+}
+
 declare module "*.php" {
 	const source: string;
 	export default source;

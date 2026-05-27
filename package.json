@@ -1,11 +1,15 @@
 {
-  "name": "php-wasm-worker",
+  "name": "php-wasm-worker-demo",
   "version": "0.0.0",
   "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "deploy": "wrangler deploy",
-    "dev": "wrangler dev",
-    "start": "wrangler dev",
+    "build-php": "workers-php build ./php --docroot . --entrypoint router.php",
+    "dev": "npm run build-php --silent && wrangler dev",
+    "start": "npm run dev",
+    "deploy": "npm run build-php --silent && wrangler deploy",
     "test": "vitest",
     "cf-typegen": "wrangler types",
     "build-wasm": "bash build/build-php-wasm.sh",
@@ -17,5 +21,8 @@
     "typescript": "^5.5.2",
     "vitest": "~3.2.0",
     "wrangler": "^4.94.0"
+  },
+  "dependencies": {
+    "workers-php": "*"
   }
 }

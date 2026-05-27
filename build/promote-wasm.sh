@@ -10,7 +10,7 @@
 set -euo pipefail
 
 readonly REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-readonly WASM_DIR="${REPO_ROOT}/wasm"
+readonly WASM_DIR="${REPO_ROOT}/packages/workers-php/src/wasm"
 
 readonly C_BOLD=$'\033[1m'
 readonly C_GREEN=$'\033[32m'
@@ -23,7 +23,8 @@ ok()   { printf "%s✓%s %s\n" "${C_GREEN}" "${C_RESET}" "$*" >&2; }
 
 # Files we expect every build to produce. PhpWeb.mjs intentionally NOT here:
 # the upstream version is incompatible with Cloudflare Workers (dynamic imports
-# + navigator.locks), so we maintain our own wasm/PhpWeb.mjs by hand.
+# + navigator.locks), so we maintain our own PhpWeb.mjs by hand in
+# packages/workers-php/src/wasm/.
 FILES=(
 	php-web.mjs
 	php-web.wasm
@@ -56,4 +57,4 @@ for name in "${FILES[@]}"; do
 done
 
 ok "Promoted all staged files"
-log "Old files retained as wasm/*.legacy; delete with \`rm wasm/*.legacy\` when satisfied"
+log "Old files retained as ${WASM_DIR}/*.legacy; delete with \`rm ${WASM_DIR}/*.legacy\` when satisfied"
