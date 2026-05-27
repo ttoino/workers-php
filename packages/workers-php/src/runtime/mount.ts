@@ -3,13 +3,16 @@
 
 import {PhpWeb} from "../wasm/PhpWeb.mjs";
 import inputWrapperSource from "../../php/input-wrapper.php";
+import libSource from "../../php/lib.php";
 import {gunzip, iterTar} from "./tar";
 import {ensureDir, type PhpBinary, type PhpFS} from "./php-instance";
 
 /**
  * Path inside the wasm FS where we drop the workers-php PHP-side runtime
- * helpers (php:// wrapper shim today, more on the way). The prelude
- * `require_once`s this file on every request.
+ * helpers. The prelude `require_once`s this file on every request; it
+ * (a) registers the php:// stream wrapper that backs php://input, and
+ * (b) defines \WorkersPHP\Env and binding classes (D1Database, R2Bucket,
+ * KVNamespace, D1PDO, …) used by the bindings DX.
  */
 export const RUNTIME_LIBRARY_PATH = "/persist/workers-php-runtime.php";
 
@@ -139,8 +142,15 @@ export const ensureMounted = (
 
 		// Install the workers-php PHP-side runtime helpers next to the
 		// mounted app, at a stable path so the prelude can require it.
+		// Bundle the input-wrapper + library classes into one file so
+		// require_once is a single round trip. Strip the leading `<?php`
+		// from the second file since the first one is still open.
 		ensureDir(binary.FS, "/persist");
-		binary.FS.writeFile(RUNTIME_LIBRARY_PATH, inputWrapperSource);
+		const inputWrapperBody = inputWrapperSource.replace(/^<\?php\s*/, "");
+		binary.FS.writeFile(
+			RUNTIME_LIBRARY_PATH,
+			libSource + "\n\n" + inputWrapperBody,
+		);
 
 		log(
 			`mount: ${files} files, ${dirs} dirs at ${opts.appRoot} in ${Date.now() - t0}ms`,

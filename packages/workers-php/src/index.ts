@@ -5,7 +5,13 @@
 // See https://github.com/anomalyco/workers-php for usage.
 
 export {createPhpHandler} from "./runtime/handler";
-export type {PhpHandler, PhpHandlerOptions} from "./runtime/handler";
+export type {
+	PhpHandler,
+	PhpHandlerOptions,
+	BindingKind,
+	BindingDeclarations,
+	StaticRoute,
+} from "./runtime/handler";
 
 // Lower-level building blocks. Most users won't need these; expose them
 // in case someone wants to compose a custom handler.

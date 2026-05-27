@@ -4,11 +4,28 @@
 // project's entrypoint.
 
 import {PhpWeb} from "../wasm/PhpWeb.mjs";
+import {buildEnvDeclaration, makeBindingDispatch} from "./bindings";
 import {setBridgeMethods, type BridgeMethods} from "./bridge";
 import {BodyTooLargeError, buildPrelude, buildShutdown, parseOutput, phpQuoteString} from "./cgi";
 import {ensureMounted, RUNTIME_LIBRARY_PATH} from "./mount";
 import {ensureDir, getPhp, withPhpLock, type PhpBinary} from "./php-instance";
 import {DEFAULT_STATIC_EXTENSIONS, isStaticRequest} from "./static";
+
+/** Binding type identifiers, parallel to wrangler.jsonc binding kinds. */
+export type BindingKind = "d1" | "r2" | "kv" | "var" | "secret";
+
+/** Map from binding name (matches wrangler.jsonc and the user's env) to
+ *  binding kind. Names are exposed to PHP via `$env-><Name>`. */
+export type BindingDeclarations = Record<string, BindingKind>;
+
+/** URL-path prefix that should be served by a specific R2 binding rather
+ *  than the default ASSETS short-circuit. R2 misses fall through to
+ *  ASSETS (unless `fallbackToAssets: false`). */
+export interface StaticRoute {
+	pathPrefix: string;
+	from: string;
+	fallbackToAssets?: boolean;
+}
 
 const INPUT_TMP_PATH = "/tmp/workers-php-input";
 
@@ -79,6 +96,18 @@ export interface PhpHandlerOptions {
 	 *  Worker's `env` for binding-backed dispatch (D1, R2, KV, …). */
 	bridgeMethodsForRequest?: (request: Request, env: unknown) => BridgeMethods;
 
+	/** Cloudflare bindings exposed to PHP code as `$env-><Name>`. Each
+	 *  declared binding must also exist on the Worker's `env` parameter
+	 *  with a matching type (D1Database, R2Bucket, KVNamespace, or a
+	 *  string for `var`/`secret`). */
+	bindings?: BindingDeclarations;
+
+	/** URL prefixes routed to a binding's `Fetcher`-like surface before
+	 *  the default static-extension short-circuit. Currently supports R2
+	 *  bindings — requests under `pathPrefix` are looked up in the bucket
+	 *  by key (URL path minus the leading slash). */
+	staticRoutes?: readonly StaticRoute[];
+
 	/** Optional log hook. Default: console.warn for stderr only. */
 	onLog?: (level: "stdout" | "stderr" | "mount", text: string) => void;
 }
@@ -100,6 +129,8 @@ interface ResolvedOptions {
 	bridgeMethodsForRequest:
 		| ((request: Request, env: unknown) => BridgeMethods)
 		| undefined;
+	bindings: BindingDeclarations;
+	staticRoutes: readonly StaticRoute[];
 	onLog: (level: "stdout" | "stderr" | "mount", text: string) => void;
 }
 
@@ -121,6 +152,8 @@ const resolveOptions = (o: PhpHandlerOptions = {}): ResolvedOptions => {
 		maxBodyBytes: o.maxBodyBytes ?? 50_000_000,
 		bridgeMethods: o.bridgeMethods ?? {},
 		bridgeMethodsForRequest: o.bridgeMethodsForRequest,
+		bindings: o.bindings ?? {},
+		staticRoutes: o.staticRoutes ?? [],
 		onLog:
 			o.onLog ??
 			((level, text) => {
@@ -171,14 +204,16 @@ const runPhp = async (
 	const url = new URL(request.url);
 	const php = getPhp();
 
-	// Install the bridge dispatch table for this request. Static methods
-	// from `options.bridgeMethods` plus per-request closures from
-	// `bridgeMethodsForRequest(request, env)` (the latter wins on
-	// collision). Idempotent; mutates Module.workersPhpBridge in place.
+	// Install the bridge dispatch table for this request. Layered:
+	//   * built-in binding handlers (d1_*, r2_*, kv_*) for declared bindings
+	//   * static `bridgeMethods` from createPhpHandler
+	//   * per-request closures from `bridgeMethodsForRequest`
+	// Later layers win on key collision.
+	const builtin = makeBindingDispatch(env, options.bindings);
 	const perRequest = options.bridgeMethodsForRequest
 		? options.bridgeMethodsForRequest(request, env)
 		: {};
-	await setBridgeMethods(php, {...options.bridgeMethods, ...perRequest});
+	await setBridgeMethods(php, {...builtin, ...options.bridgeMethods, ...perRequest});
 
 	const scriptFilename = `${options.appRoot}/${options.docroot}/${options.entrypoint}`;
 	const documentRoot = `${options.appRoot}/${options.docroot}`;
@@ -201,6 +236,9 @@ const runPhp = async (
 				errorReporting: options.errorReporting,
 				maxBodyBytes: options.maxBodyBytes,
 				runtimeLibraryPath: RUNTIME_LIBRARY_PATH,
+				envDeclaration: Object.keys(options.bindings).length
+					? buildEnvDeclaration(env, options.bindings)
+					: "",
 			});
 		} catch (e) {
 			if (e instanceof BodyTooLargeError) {
@@ -306,10 +344,39 @@ export const createPhpHandler = (
 				);
 			}
 
+			const url = new URL(request.url);
+
+			// Static-route override: lookup in a specific R2 binding before
+			// touching ASSETS or PHP. Misses fall through to the ASSETS
+			// short-circuit, then to PHP.
+			for (const route of opts.staticRoutes) {
+				if (url.pathname.startsWith(route.pathPrefix)) {
+					const r2 = envMap?.[route.from] as
+						| {get: (key: string) => Promise<{body: ReadableStream; httpEtag?: string; writeHttpMetadata?: (h: Headers) => void} | null>}
+						| undefined;
+					if (r2 && typeof r2.get === "function") {
+						const key = url.pathname.slice(1);
+						const obj = await r2.get(key);
+						if (obj) {
+							const headers = new Headers();
+							if (typeof obj.writeHttpMetadata === "function") {
+								obj.writeHttpMetadata(headers);
+							}
+							if (obj.httpEtag) headers.set("etag", obj.httpEtag);
+							return new Response(obj.body, {headers});
+						}
+						if (route.fallbackToAssets === false) {
+							return new Response("Not Found", {status: 404});
+						}
+					}
+					break; // only the first matching route is consulted
+				}
+			}
+
 			// Static-file short-circuit. Bypasses PHP entirely.
 			if (
 				!opts.disableStaticShortCircuit &&
-				isStaticRequest(new URL(request.url).pathname, opts.staticExtensions)
+				isStaticRequest(url.pathname, opts.staticExtensions)
 			) {
 				return assets.fetch(request);
 			}
