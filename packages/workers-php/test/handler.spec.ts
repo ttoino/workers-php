@@ -264,6 +264,52 @@ describe("createPhpHandler (with mock ASSETS)", () => {
 		expect(text).toContain('body={"hello":"world","n":42}');
 	}, 30000);
 
+	it("dispatches workers_php_call() into a bridge handler and round-trips JSON", async () => {
+		const tar = buildTar([
+			{name: "app/", type: "dir"},
+			{
+				name: "app/index.php",
+				data:
+					"<?php\n" +
+					"header('Content-Type: application/json');\n" +
+					"$ok    = workers_php_call('echo', ['hi', 42, ['k' => 'v']]);\n" +
+					"$obj   = workers_php_call('plus', [3, 4]);\n" +
+					"try { workers_php_call('boom', ['oops']); $err = 'no-throw'; }\n" +
+					"catch (\\WorkersPHP\\BridgeException $e) { $err = $e->getMessage(); }\n" +
+					"echo json_encode(['echoed' => $ok, 'plus' => $obj, 'err' => $err]);\n",
+			},
+		]);
+		const envBridge = {ASSETS: makeMockAssets(new Uint8Array(gzipSync(tar)))};
+
+		const handler = createPhpHandler({
+			appRoot: "/persist/test-bridge",
+			docroot: ".",
+			entrypoint: "index.php",
+			bridgeMethods: {
+				echo: (...args: unknown[]) => ({echoed: args}),
+				plus: (a: number, b: number) => a + b,
+				boom: (msg: string) => {
+					throw new Error("bridge:" + msg);
+				},
+			},
+		});
+
+		const req = new Request("https://example.com/");
+		const res = await handler(req, envBridge, {
+			waitUntil: () => {},
+			passThroughOnException: () => {},
+		} as unknown as ExecutionContext);
+		expect(res.status).toBe(200);
+		const json = (await res.json()) as {
+			echoed: {echoed: unknown[]};
+			plus: number;
+			err: string;
+		};
+		expect(json.echoed.echoed).toEqual(["hi", 42, {k: "v"}]);
+		expect(json.plus).toBe(7);
+		expect(json.err).toContain("bridge:oops");
+	}, 30000);
+
 	it("returns 413 when the request body exceeds maxBodyBytes", async () => {
 		const handler = createPhpHandler({
 			appRoot: "/persist/test-large",

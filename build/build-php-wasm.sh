@@ -213,7 +213,7 @@ ok "Env file installed"
 # the env include, so it runs in the same phase. Idempotent.
 
 if ! grep -qF "# php-wasm-worker: extra configure flags" "${UPSTREAM_DIR}/Makefile"; then
-	log "Patching Makefile to add --enable-fileinfo to CONFIGURE_FLAGS"
+	log "Patching Makefile to add extra CONFIGURE_FLAGS"
 	python3 - "${UPSTREAM_DIR}/Makefile" <<'PYEOF'
 import sys, pathlib
 p = pathlib.Path(sys.argv[1])
@@ -225,15 +225,107 @@ inject = (
 	"\n"
 	"# php-wasm-worker: extra configure flags (no upstream knob for fileinfo)\n"
 	"CONFIGURE_FLAGS+= --enable-fileinfo\n"
+	"# php-wasm-worker: enable bundled extensions\n"
+	"CONFIGURE_FLAGS+= --enable-workers-php-bridge\n"
 )
 if marker not in src:
 	raise SystemExit(f"marker not found in Makefile: {marker!r}")
 new = src.replace(marker, marker + inject, 1)
+# The workers_php_bridge extension's EM_ASYNC_JS code uses
+# `stringToNewUTF8` and the upstream Emscripten link line doesn't export
+# it as a JS runtime method. Add it (idempotent).
+old_exports = '"ccall", "UTF8ToString", "lengthBytesUTF8", "stringToUTF8", "getValue", "setValue", "lengthBytesUTF8", "FS", "ENV"'
+new_exports = '"ccall", "UTF8ToString", "lengthBytesUTF8", "stringToUTF8", "stringToNewUTF8", "getValue", "setValue", "lengthBytesUTF8", "FS", "ENV"'
+if old_exports in new:
+	new = new.replace(old_exports, new_exports, 1)
+elif new_exports not in new:
+	raise SystemExit("EXPORTED_RUNTIME_METHODS marker not found; upstream may have changed it")
 p.write_text(new)
 PYEOF
 	ok "Makefile patched"
 else
 	ok "Makefile already patched"
+fi
+
+# ---------- Copy bundled PHP extensions into the upstream checkout ----------
+#
+# We ship a few small PHP extensions in build/extensions/. They get copied
+# into third_party/php<ver>-src/ext/<name>/ before `./configure` so PHP's
+# build system picks them up. The Makefile patch above adds the
+# corresponding `--enable-<name>` flags.
+
+bundled_extensions_dir="${BUILD_DIR}/extensions"
+php_ext_root="${UPSTREAM_DIR}/third_party/php${PHP_VERSION}-src/ext"
+
+if [[ -d "${bundled_extensions_dir}" ]]; then
+	log "Staging bundled extensions from ${bundled_extensions_dir}"
+	# The third_party/php<ver>-src directory only exists after the PHP
+	# source has been downloaded and unpacked. The Makefile creates it
+	# during the first `make` invocation. We can't copy yet — defer until
+	# the source is in place by writing a sentinel shell snippet the
+	# Makefile's PHP-source-patched target invokes. The simpler trick used
+	# here: stash the extensions in a known location inside UPSTREAM_DIR
+	# and add a Makefile rule that copies them into ext/ as part of the
+	# `patched` step.
+	mkdir -p "${UPSTREAM_DIR}/build-extensions"
+	# Mirror each extension subdir.
+	for ext_dir in "${bundled_extensions_dir}"/*/; do
+		[[ -d "${ext_dir}" ]] || continue
+		name="$(basename "${ext_dir}")"
+		rm -rf "${UPSTREAM_DIR}/build-extensions/${name}"
+		cp -a "${ext_dir}" "${UPSTREAM_DIR}/build-extensions/${name}"
+		ok "Staged extension: ${name}"
+	done
+
+	# Patch the Makefile to add a rule that copies our extensions into
+	# the PHP source tree before `./configure` runs. The injection has to
+	# happen AFTER the `PHP_CONFIGURE_DEPS=` reset line near the top of
+	# the upstream Makefile (which wipes any earlier `+=`), so we anchor
+	# on the `third_party/php${PHP_VERSION}-src/configured:` rule and
+	# inject right above it.
+	if ! grep -qF "# php-wasm-worker: copy bundled extensions" "${UPSTREAM_DIR}/Makefile"; then
+		python3 - "${UPSTREAM_DIR}/Makefile" "${PHP_VERSION}" <<'PYEOF'
+import sys, pathlib, re
+p = pathlib.Path(sys.argv[1])
+phpver = sys.argv[2]
+src = p.read_text()
+inject = f"""
+# php-wasm-worker: copy bundled extensions into the PHP source tree.
+# Runs after `patched` and before `configured`. Both the `cp` and the
+# final marker `touch` are run inside docker because the PHP source tree
+# is owned by the container's root uid; touching it from the host fails.
+third_party/php{phpver}-src/bundled-extensions-staged: third_party/php{phpver}-src/patched
+\t@ echo "==> Staging bundled extensions into third_party/php{phpver}-src/ext/"
+\t@ for d in build-extensions/*/; do \\
+\t\t[ -d "$$d" ] || continue; \\
+\t\tname="$$(basename $$d)"; \\
+\t\t${{DOCKER_RUN}} cp -a build-extensions/$$name third_party/php{phpver}-src/ext/$$name; \\
+\tdone
+\t${{DOCKER_RUN}} touch $@
+
+# Wire the new target into the existing `configured` rule by adding it as
+# a dependency through PHP_CONFIGURE_DEPS. This `+=` lands AFTER the
+# upstream `PHP_CONFIGURE_DEPS=` reset and AFTER all the per-package
+# static.mak `+=` lines, so it survives.
+PHP_CONFIGURE_DEPS+= third_party/php{phpver}-src/bundled-extensions-staged
+
+"""
+# Anchor on the configured: rule. In the upstream Makefile this is
+# spelled `third_party/php${PHP_VERSION}-src/configured:` (literal make
+# variable, not yet expanded). Find that.
+marker = "third_party/php${PHP_VERSION}-src/configured:"
+idx = src.find(marker)
+if idx < 0:
+	raise SystemExit(f"marker not found: {marker!r}")
+new = src[:idx] + inject + src[idx:]
+p.write_text(new)
+PYEOF
+		ok "Makefile patched to stage bundled extensions"
+	else
+		ok "Makefile bundled-extensions rule already present"
+	fi
+else
+	log "No build/extensions/ directory; skipping bundled extensions"
 fi
 
 # ---------- npm install in the upstream checkout ----------

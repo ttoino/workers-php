@@ -4,6 +4,7 @@
 // project's entrypoint.
 
 import {PhpWeb} from "../wasm/PhpWeb.mjs";
+import {setBridgeMethods, type BridgeMethods} from "./bridge";
 import {BodyTooLargeError, buildPrelude, buildShutdown, parseOutput, phpQuoteString} from "./cgi";
 import {ensureMounted, RUNTIME_LIBRARY_PATH} from "./mount";
 import {ensureDir, getPhp, withPhpLock, type PhpBinary} from "./php-instance";
@@ -67,6 +68,17 @@ export interface PhpHandlerOptions {
 	 *  Default: 50_000_000 (~50 MB). */
 	maxBodyBytes?: number;
 
+	/** Methods exposed on `Module.workersPhpBridge` for PHP code to call
+	 *  via the bundled `workers_php_call($method, $args)` function. Per-
+	 *  request bridge methods (e.g. ones that close over `env.DB`) can
+	 *  also be set via the `bridgeMethodsForRequest(request, env)` hook. */
+	bridgeMethods?: BridgeMethods;
+
+	/** Per-request bridge methods. Combined with `bridgeMethods` on each
+	 *  request; this one wins on key collision. Use to close over the
+	 *  Worker's `env` for binding-backed dispatch (D1, R2, KV, …). */
+	bridgeMethodsForRequest?: (request: Request, env: unknown) => BridgeMethods;
+
 	/** Optional log hook. Default: console.warn for stderr only. */
 	onLog?: (level: "stdout" | "stderr" | "mount", text: string) => void;
 }
@@ -84,6 +96,10 @@ interface ResolvedOptions {
 	displayErrors: boolean;
 	errorReporting: string;
 	maxBodyBytes: number;
+	bridgeMethods: BridgeMethods;
+	bridgeMethodsForRequest:
+		| ((request: Request, env: unknown) => BridgeMethods)
+		| undefined;
 	onLog: (level: "stdout" | "stderr" | "mount", text: string) => void;
 }
 
@@ -103,6 +119,8 @@ const resolveOptions = (o: PhpHandlerOptions = {}): ResolvedOptions => {
 		displayErrors: o.displayErrors ?? true,
 		errorReporting: o.errorReporting ?? "E_ALL",
 		maxBodyBytes: o.maxBodyBytes ?? 50_000_000,
+		bridgeMethods: o.bridgeMethods ?? {},
+		bridgeMethodsForRequest: o.bridgeMethodsForRequest,
 		onLog:
 			o.onLog ??
 			((level, text) => {
@@ -147,10 +165,20 @@ const collectOutput = (
 
 const runPhp = async (
 	request: Request,
+	env: unknown,
 	options: ResolvedOptions,
 ): Promise<Response> => {
 	const url = new URL(request.url);
 	const php = getPhp();
+
+	// Install the bridge dispatch table for this request. Static methods
+	// from `options.bridgeMethods` plus per-request closures from
+	// `bridgeMethodsForRequest(request, env)` (the latter wins on
+	// collision). Idempotent; mutates Module.workersPhpBridge in place.
+	const perRequest = options.bridgeMethodsForRequest
+		? options.bridgeMethodsForRequest(request, env)
+		: {};
+	await setBridgeMethods(php, {...options.bridgeMethods, ...perRequest});
 
 	const scriptFilename = `${options.appRoot}/${options.docroot}/${options.entrypoint}`;
 	const documentRoot = `${options.appRoot}/${options.docroot}`;
@@ -295,7 +323,7 @@ export const createPhpHandler = (
 					envOverrides: opts.envOverrides,
 					log: (m) => opts.onLog("mount", m),
 				});
-				return await runPhp(request, opts);
+				return await runPhp(request, env, opts);
 			});
 		} catch (err) {
 			const e = err as Error;

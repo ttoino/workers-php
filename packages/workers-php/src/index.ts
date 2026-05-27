@@ -17,3 +17,5 @@ export type {PreludeOptions, CapturedOutput} from "./runtime/cgi";
 export {isStaticRequest, DEFAULT_STATIC_EXTENSIONS} from "./runtime/static";
 export {gunzip, iterTar} from "./runtime/tar";
 export type {TarEntry} from "./runtime/tar";
+export {installBridge, setBridgeMethods} from "./runtime/bridge";
+export type {BridgeMethods} from "./runtime/bridge";

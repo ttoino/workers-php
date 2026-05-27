@@ -24,6 +24,29 @@ export class PhpWeb extends PhpBase
 		return super.refresh();
 	}
 
+	/**
+	 * Override upstream's `_run` to pass `{async: true}` to `ccall('pib_run')`.
+	 *
+	 * When PHP code inside the script suspends the wasm stack via
+	 * Emscripten's Asyncify (e.g. an `EM_ASYNC_JS` call from our
+	 * `workers_php_bridge` extension), the underlying `pib_run` returns a
+	 * Promise. Upstream's `_run` doesn't pass `{async: true}` to ccall,
+	 * which means ccall returns immediately with `undefined` while the
+	 * wasm is still mid-suspend. We need the await to actually wait.
+	 *
+	 * @param {string} phpCode
+	 */
+	_run(phpCode)
+	{
+		return this.binary.then(php => php.ccall(
+			'pib_run',
+			'number',
+			['string'],
+			[`?>${phpCode}`],
+			{ async: true }
+		)).finally(() => this.flush());
+	}
+
 	async _enqueue(callback, params = [], readOnly = false)
 	{
 		await this.binary;
