@@ -332,8 +332,24 @@ export const buildPrelude = async (
 
 	// $_POST and $_FILES are emitted using tree-aware serialization so that
 	// bracketed names produce nested PHP arrays.
+	//
+	// The prelude starts with a defensive state-reset block. `pib_refresh`
+	// (which the JS handler calls before each request) should already wipe
+	// PHP-Zend state, but extra paranoia is cheap and avoids any residual
+	// $_SESSION / http_response_code / headers_list / ob buffer state from
+	// the previous request leaking into the new one.
 	return {
 		phpSource: `<?php
+// --- defensive request-state reset ---
+$_SESSION = [];
+@http_response_code(200);
+foreach (@headers_list() as $__h) {
+    $__c = strpos($__h, ':');
+    if ($__c !== false) @header_remove(substr($__h, 0, $__c));
+}
+while (@ob_get_level() > 0) @ob_end_clean();
+
+// --- superglobals ---
 $_SERVER = array_merge($_SERVER ?? [], ${phpArrayLiteral(server)});
 $_GET = ${phpArrayLiteral(get)};
 $_POST = ${phpArrayFromTree(postTree)};
@@ -366,6 +382,130 @@ export interface CapturedOutput {
 }
 
 /**
+ * PHP source that installs an output-buffer callback which captures the
+ * response status, headers and body and pushes them to JS via the
+ * workers_php_bridge — INSTEAD of writing them to stdout as a CGI-style
+ * block.
+ *
+ * Why bridge instead of stdout-framing OR a PHP global?
+ *   * php-wasm's embed SAPI ships with `send_header` as a no-op, so the
+ *     only way to learn what `header()` calls did is to snapshot
+ *     `headers_list()` ourselves.
+ *   * Stdout-framing is fragile in the face of warning output (display_errors=1
+ *     prints notices straight into stdout), trailing whitespace after `?>`,
+ *     and other "extra bytes before the header block" cases that would
+ *     break a strict regex.
+ *   * Capturing into a $GLOBALS variable and reading back via pib_exec
+ *     fails on the `die()`/`exit()` paths: zend_bailout leaves the
+ *     Zend engine in a partially-shutdown state, and any subsequent
+ *     pib_exec call returns empty before the next pib_refresh.
+ *   * The ob_start callback runs during pib_flush, BEFORE pib_run
+ *     returns and BEFORE the engine state is touched by bailout
+ *     cleanup. Pushing the snapshot through the bridge (which writes
+ *     to a JS-side variable) means the result survives the bailout.
+ */
+export const buildCapture = (): string => `
+ob_start(function ($__body) {
+    @\\workers_php_call('__set_capture', [
+        \\http_response_code() ?: 200,
+        \\headers_list(),
+        $__body,
+    ]);
+    return '';
+});
+`;
+
+/**
+ * Shape of the captured response, pushed JS-side by buildCapture's ob
+ * callback via the workers_php_bridge.
+ */
+export interface CaptureSlot {
+	value: CapturedOutput | null;
+}
+
+/**
+ * Create a CaptureSlot + the bridge method that buildCapture's ob
+ * callback will write into. Mount the returned method into the
+ * bridge for this request via setBridgeMethods, then read
+ * `slot.value` after pib_run returns.
+ */
+export const makeCaptureSlot = (): {
+	slot: CaptureSlot;
+	bridgeMethod: (status: number, headers: string[], body: string) => boolean;
+} => {
+	const slot: CaptureSlot = {value: null};
+	const bridgeMethod = (
+		status: number,
+		headers: string[],
+		body: string,
+	): boolean => {
+		const h = new Headers();
+		for (const line of headers ?? []) {
+			const idx = line.indexOf(":");
+			if (idx <= 0) continue;
+			const name = line.slice(0, idx).trim();
+			const value = line.slice(idx + 1).trim();
+			if (!name) continue;
+			if (/^status$/i.test(name)) continue;
+			h.append(name, value);
+		}
+		slot.value = {
+			status: typeof status === "number" ? status : 200,
+			headers: h,
+			body: typeof body === "string" ? body : "",
+		};
+		return true;
+	};
+	return {slot, bridgeMethod};
+};
+
+/**
+ * @deprecated kept for back-compat with tests. Use makeCaptureSlot +
+ * the __set_capture bridge method instead — that approach survives
+ * die()/exit() inside the user script because the snapshot leaves PHP
+ * land before bailout cleanup tears down the Zend state.
+ *
+ * Reads the capture from $GLOBALS['__workers_php_capture'] via pib_exec.
+ * Only works when the user script completed normally.
+ */
+export const readCapture = async (
+	php: {exec: (code: string) => Promise<string | null | undefined>},
+): Promise<CapturedOutput | null> => {
+	const raw = await php.exec(
+		"\\json_encode($GLOBALS['__workers_php_capture'] ?? null, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)",
+	);
+	if (raw == null || raw === "" || raw === "null") return null;
+
+	let parsed: {status?: number; headers?: string[]; body?: string};
+	try {
+		parsed = JSON.parse(raw) as typeof parsed;
+	} catch {
+		return null;
+	}
+	if (!parsed) return null;
+
+	const headers = new Headers();
+	for (const line of parsed.headers ?? []) {
+		const idx = line.indexOf(":");
+		if (idx <= 0) continue;
+		const name = line.slice(0, idx).trim();
+		const value = line.slice(idx + 1).trim();
+		if (!name) continue;
+		if (/^status$/i.test(name)) continue;
+		headers.append(name, value);
+	}
+	return {
+		status: typeof parsed.status === "number" ? parsed.status : 200,
+		headers,
+		body: typeof parsed.body === "string" ? parsed.body : "",
+	};
+};
+
+/**
+ * @deprecated kept for back-compat. Use `buildCapture` + `readCapture`
+ * which is robust against ob/SAPI ordering, leading whitespace, and
+ * notice output in stdout.
+ *
  * Extract the CGI-style "Header: value\r\n...\r\n\r\nBODY" block(s) from
  * captured stdout and produce headers/status/body for the Response.
  *
@@ -422,20 +562,18 @@ export const parseOutput = (stdout: string): CapturedOutput => {
 };
 
 /**
- * PHP source that wraps the entrypoint in an output-buffer callback so the
- * response framing (Status + headers + body) survives every script
- * termination path: normal return, throw, and exit/die.
+ * @deprecated kept for back-compat. Use `buildCapture` + `readCapture`.
+ *
+ * The new implementation no longer emits CGI-style framing into stdout
+ * (the embed SAPI's send_header is a no-op so framing has to come from
+ * userland — and an ob_start callback that writes back to the buffer
+ * fights with notices/whitespace/etc that PHP also writes to stdout).
+ *
+ * Returning buildCapture() preserves the entrypoint name for existing
+ * callers but the new mechanism stores the captured response in a PHP
+ * GLOBAL that `readCapture(php)` retrieves out-of-band via pib_exec.
  */
-export const buildShutdown = (): string => `
-ob_start(function ($__body) {
-    $__out = '';
-    $__status = http_response_code();
-    if (is_int($__status)) $__out .= "Status: $__status\\r\\n";
-    foreach (headers_list() as $__h) $__out .= $__h . "\\r\\n";
-    $__out .= "\\r\\n" . $__body;
-    return $__out;
-});
-`;
+export const buildShutdown = (): string => buildCapture();
 
 /**
  * @deprecated kept for back-compat; prefer buildShutdown().

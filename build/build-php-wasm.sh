@@ -96,6 +96,26 @@ git -C "${UPSTREAM_DIR}" checkout --quiet "${pinned_sha}"
 git -C "${UPSTREAM_DIR}" reset --hard --quiet "${pinned_sha}"
 ok "Upstream checked out at ${pinned_sha}"
 
+# ---------- Overlay patched source files ----------
+#
+# Our patches/ directory contains drop-in replacements for upstream
+# files. Copy each one over the checkout BEFORE configure runs. The
+# Makefile copies these into third_party/php<ver>-src/ as part of its
+# `patched` step (for ext/pib/pib.c) or directly references the source/
+# variants.
+patches_dir="${BUILD_DIR}/patches"
+if [[ -d "${patches_dir}" ]]; then
+	if [[ -f "${patches_dir}/pib.c" ]]; then
+		cp "${patches_dir}/pib.c" "${UPSTREAM_DIR}/source/pib/pib.c"
+		# Also clobber any already-copied version in third_party so the
+		# next make doesn't get fooled by mtime.
+		if [[ -f "${UPSTREAM_DIR}/third_party/php${PHP_VERSION}-src/ext/pib/pib.c" ]]; then
+			cp "${patches_dir}/pib.c" "${UPSTREAM_DIR}/third_party/php${PHP_VERSION}-src/ext/pib/pib.c"
+		fi
+		ok "Overlaid patched pib.c (workers-php request-shutdown patch)"
+	fi
+fi
+
 # ---------- Patch Dockerfile to pin EMSDK ----------
 
 dockerfile="${UPSTREAM_DIR}/emscripten-builder.dockerfile"

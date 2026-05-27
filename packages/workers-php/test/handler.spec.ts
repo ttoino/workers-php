@@ -310,6 +310,110 @@ describe("createPhpHandler (with mock ASSETS)", () => {
 		expect(json.err).toContain("bridge:oops");
 	}, 30000);
 
+	it("captures status 302 + Location when the script die()s after header()", async () => {
+		const tar = buildTar([
+			{name: "app/", type: "dir"},
+			{
+				name: "app/index.php",
+				data:
+					"<?php\n" +
+					"header('Location: /next');\n" +
+					"die();\n",
+			},
+		]);
+		const env4 = {ASSETS: makeMockAssets(new Uint8Array(gzipSync(tar)))};
+		const handler = createPhpHandler({
+			appRoot: "/persist/test-die-redir",
+			docroot: ".",
+			entrypoint: "index.php",
+		});
+		const res = await handler(
+			new Request("https://example.com/"),
+			env4,
+			{waitUntil: () => {}, passThroughOnException: () => {}} as unknown as ExecutionContext,
+		);
+		expect(res.status).toBe(302);
+		expect(res.headers.get("Location")).toBe("/next");
+	}, 30000);
+
+	it("captures http_response_code() set before die() (pageError-style)", async () => {
+		const tar = buildTar([
+			{name: "app/", type: "dir"},
+			{
+				name: "app/index.php",
+				data:
+					"<?php\n" +
+					"http_response_code(400);\n" +
+					"echo 'bad request body';\n" +
+					"die();\n",
+			},
+		]);
+		const env5 = {ASSETS: makeMockAssets(new Uint8Array(gzipSync(tar)))};
+		const handler = createPhpHandler({
+			appRoot: "/persist/test-400",
+			docroot: ".",
+			entrypoint: "index.php",
+		});
+		const res = await handler(
+			new Request("https://example.com/"),
+			env5,
+			{waitUntil: () => {}, passThroughOnException: () => {}} as unknown as ExecutionContext,
+		);
+		expect(res.status).toBe(400);
+		expect(await res.text()).toContain("bad request body");
+	}, 30000);
+
+	it("does NOT bleed state (headers / response code) between requests on the same handler", async () => {
+		const tar = buildTar([
+			{name: "app/", type: "dir"},
+			{
+				name: "app/index.php",
+				data:
+					"<?php\n" +
+					"// Route 1: set custom header + status + die\n" +
+					"// Route 2: just echo - must see NO trace of route 1\n" +
+					"$p = $_GET['p'] ?? '';\n" +
+					"if ($p === 'one') {\n" +
+					"    header('X-Leak-Test: yes');\n" +
+					"    http_response_code(418);\n" +
+					"    echo 'one';\n" +
+					"    die();\n" +
+					"}\n" +
+					"echo 'two-status=' . (http_response_code() ?: 200) . ';';\n" +
+					"echo 'two-headers=' . count(headers_list()) . ';';\n",
+			},
+		]);
+		const env6 = {ASSETS: makeMockAssets(new Uint8Array(gzipSync(tar)))};
+		const handler = createPhpHandler({
+			appRoot: "/persist/test-bleed",
+			docroot: ".",
+			entrypoint: "index.php",
+		});
+
+		// First request: pollute state.
+		const r1 = await handler(
+			new Request("https://example.com/?p=one"),
+			env6,
+			{waitUntil: () => {}, passThroughOnException: () => {}} as unknown as ExecutionContext,
+		);
+		expect(r1.status).toBe(418);
+		expect(r1.headers.get("X-Leak-Test")).toBe("yes");
+		expect(await r1.text()).toContain("one");
+
+		// Second request: must NOT inherit anything.
+		const r2 = await handler(
+			new Request("https://example.com/?p=two"),
+			env6,
+			{waitUntil: () => {}, passThroughOnException: () => {}} as unknown as ExecutionContext,
+		);
+		expect(r2.status).toBe(200);
+		expect(r2.headers.get("X-Leak-Test")).toBeNull();
+		const body = await r2.text();
+		expect(body).toContain("two-status=200");
+		// PHP may inject Content-Type/X-Powered-By so headers_list() count varies,
+		// but X-Leak-Test must not be present. We rely on the header check above.
+	}, 60000);
+
 	it("returns 413 when the request body exceeds maxBodyBytes", async () => {
 		const handler = createPhpHandler({
 			appRoot: "/persist/test-large",

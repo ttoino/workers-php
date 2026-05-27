@@ -335,9 +335,17 @@ before `session_start()`. The auto-install is only triggered when
 - Subsequent requests skip the mount and just `require` the entrypoint
   with `$_SERVER`/`$_GET`/`$_POST`/`$_COOKIE` synthesized from the
   incoming `Request`.
-- PHP's `header()` and `http_response_code()` are captured via a small
-  output-buffer wrapper and emitted as a CGI-style header block on
-  stdout that the library parses into a `Response`.
+- PHP's `header()`, `http_response_code()` and body output are captured
+  via an `ob_start()` handler. The handler pushes the response snapshot
+  through the `workers_php_bridge` C extension into a JS-side variable
+  the library reads after `pib_run` returns. The bundled PHP wasm
+  carries a small `pib.c` patch (`build/patches/pib.c`) that forces
+  `php_call_shutdown_functions` + `php_output_end_all` to fire at the
+  end of every script, so the capture handler runs for **every** exit
+  path — normal end, exceptions, AND `exit()` / `die()`. (Stock
+  `pib_run` skips request-shutdown entirely, which means a script that
+  `header('Location: ...'); die()`s leaves PHP without ever invoking
+  any of those callbacks and the response would otherwise be lost.)
 
 ## Limitations
 

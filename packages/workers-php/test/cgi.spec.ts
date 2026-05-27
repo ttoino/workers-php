@@ -1,8 +1,12 @@
 import {describe, it, expect} from "vitest";
 import {
 	buildPrelude,
+	buildCapture,
+	makeCaptureSlot,
+	readCapture,
 	parseOutput,
 	buildEpilogue,
+	buildShutdown,
 	phpQuoteString,
 } from "../src/runtime/cgi";
 
@@ -161,5 +165,156 @@ describe("buildEpilogue", () => {
 		expect(src).toContain("ob_get_clean()");
 		expect(src).toContain("headers_list()");
 		expect(src).toContain("http_response_code()");
+	});
+});
+
+describe("buildCapture", () => {
+	it("installs an ob_start callback that pushes via workers_php_call", () => {
+		const src = buildCapture();
+		expect(src).toContain("ob_start(function");
+		expect(src).toContain("\\workers_php_call('__set_capture'");
+		expect(src).toContain("\\http_response_code()");
+		expect(src).toContain("\\headers_list()");
+		// Callback returns empty so nothing reaches stdout.
+		expect(src).toContain("return ''");
+	});
+
+	it("returns empty from the callback so nothing goes to stdout", () => {
+		const src = buildCapture();
+		// The callback must not write anything onward — the response is
+		// returned to JS via the bridge, not via stdout.
+		expect(src).toMatch(/return ''\s*;\s*\}\s*\)/);
+	});
+});
+
+describe("makeCaptureSlot", () => {
+	it("returns an empty slot + a bridge method that populates it", () => {
+		const {slot, bridgeMethod} = makeCaptureSlot();
+		expect(slot.value).toBeNull();
+		const ok = bridgeMethod(
+			302,
+			[
+				"Location: /next",
+				"Content-Type: text/html; charset=utf-8",
+				"Set-Cookie: a=1",
+				"Set-Cookie: b=2",
+			],
+			"redirecting...",
+		);
+		expect(ok).toBe(true);
+		expect(slot.value).not.toBeNull();
+		expect(slot.value!.status).toBe(302);
+		expect(slot.value!.headers.get("Location")).toBe("/next");
+		expect(slot.value!.headers.get("Content-Type")).toBe(
+			"text/html; charset=utf-8",
+		);
+		expect(slot.value!.headers.getSetCookie()).toEqual(["a=1", "b=2"]);
+		expect(slot.value!.body).toBe("redirecting...");
+	});
+
+	it("strips Status:-styled pseudo-headers", () => {
+		const {slot, bridgeMethod} = makeCaptureSlot();
+		bridgeMethod(
+			400,
+			["Status: 400 Bad Request", "Content-Type: text/html"],
+			"bad",
+		);
+		expect(slot.value!.status).toBe(400);
+		expect(slot.value!.headers.get("Status")).toBeNull();
+		expect(slot.value!.headers.get("Content-Type")).toBe("text/html");
+	});
+
+	it("defaults non-numeric status to 200 and non-string body to empty", () => {
+		const {slot, bridgeMethod} = makeCaptureSlot();
+		bridgeMethod(
+			"oops" as unknown as number,
+			[],
+			null as unknown as string,
+		);
+		expect(slot.value!.status).toBe(200);
+		expect(slot.value!.body).toBe("");
+	});
+});
+
+describe("buildShutdown (back-compat alias)", () => {
+	it("returns the same source as buildCapture", () => {
+		expect(buildShutdown()).toBe(buildCapture());
+	});
+});
+
+describe("readCapture (legacy, $GLOBALS-based)", () => {
+	it("returns null when the global is unset", async () => {
+		const stub = {exec: async (_code: string) => "null"};
+		const out = await readCapture(stub);
+		expect(out).toBeNull();
+	});
+
+	it("parses status/headers/body from a populated global", async () => {
+		const stub = {
+			exec: async (_code: string) =>
+				JSON.stringify({
+					status: 302,
+					headers: [
+						"Location: /next",
+						"Content-Type: text/html; charset=utf-8",
+						"Set-Cookie: PHPSESSID=abc; path=/",
+					],
+					body: "redirecting...",
+				}),
+		};
+		const out = await readCapture(stub);
+		expect(out).not.toBeNull();
+		expect(out!.status).toBe(302);
+		expect(out!.headers.get("Location")).toBe("/next");
+		expect(out!.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
+		expect(out!.headers.getSetCookie()).toEqual(["PHPSESSID=abc; path=/"]);
+		expect(out!.body).toBe("redirecting...");
+	});
+
+	it("ignores Status:-styled pseudo-headers in the header list", async () => {
+		const stub = {
+			exec: async (_code: string) =>
+				JSON.stringify({
+					status: 400,
+					headers: ["Status: 400 Bad Request", "Content-Type: text/html"],
+					body: "bad",
+				}),
+		};
+		const out = await readCapture(stub);
+		expect(out!.status).toBe(400);
+		expect(out!.headers.get("Status")).toBeNull();
+		expect(out!.headers.get("Content-Type")).toBe("text/html");
+	});
+
+	it("defaults to 200 if status is missing", async () => {
+		const stub = {
+			exec: async (_code: string) =>
+				JSON.stringify({headers: [], body: "hi"}),
+		};
+		const out = await readCapture(stub);
+		expect(out!.status).toBe(200);
+		expect(out!.body).toBe("hi");
+	});
+
+	it("returns null on malformed JSON", async () => {
+		const stub = {exec: async (_code: string) => "not-json"};
+		expect(await readCapture(stub)).toBeNull();
+	});
+
+	it("returns null when exec returns null/undefined/empty", async () => {
+		expect(await readCapture({exec: async () => null})).toBeNull();
+		expect(await readCapture({exec: async () => undefined})).toBeNull();
+		expect(await readCapture({exec: async () => ""})).toBeNull();
+	});
+});
+
+describe("buildPrelude state reset", () => {
+	it("clears $_SESSION, response code, headers, and ob buffers", async () => {
+		const req = new Request("https://example.com/");
+		const src = (await buildPrelude(req)).phpSource;
+		expect(src).toContain("$_SESSION = []");
+		expect(src).toContain("@http_response_code(200)");
+		expect(src).toContain("@header_remove");
+		expect(src).toContain("@ob_end_clean");
 	});
 });

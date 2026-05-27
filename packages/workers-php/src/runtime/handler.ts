@@ -6,7 +6,7 @@
 import {PhpWeb} from "../wasm/PhpWeb.mjs";
 import {buildEnvDeclaration, buildSessionDeclaration, makeBindingDispatch} from "./bindings";
 import {setBridgeMethods, type BridgeMethods} from "./bridge";
-import {BodyTooLargeError, buildPrelude, buildShutdown, parseOutput, phpQuoteString} from "./cgi";
+import {BodyTooLargeError, buildCapture, buildPrelude, makeCaptureSlot, phpQuoteString} from "./cgi";
 import {ensureMounted, RUNTIME_LIBRARY_PATH} from "./mount";
 import {ensureDir, getPhp, withPhpLock, type PhpBinary} from "./php-instance";
 import {DEFAULT_STATIC_EXTENSIONS, isStaticRequest} from "./static";
@@ -246,15 +246,22 @@ const runPhp = async (
 	const php = getPhp();
 
 	// Install the bridge dispatch table for this request. Layered:
+	//   * the response-capture handler (__set_capture) the ob callback uses
 	//   * built-in binding handlers (d1_*, r2_*, kv_*) for declared bindings
 	//   * static `bridgeMethods` from createPhpHandler
 	//   * per-request closures from `bridgeMethodsForRequest`
 	// Later layers win on key collision.
+	const {slot: captureSlot, bridgeMethod: captureBridgeMethod} = makeCaptureSlot();
 	const builtin = makeBindingDispatch(env, options.bindings);
 	const perRequest = options.bridgeMethodsForRequest
 		? options.bridgeMethodsForRequest(request, env)
 		: {};
-	await setBridgeMethods(php, {...builtin, ...options.bridgeMethods, ...perRequest});
+	await setBridgeMethods(php, {
+		__set_capture: captureBridgeMethod,
+		...builtin,
+		...options.bridgeMethods,
+		...perRequest,
+	});
 
 	const scriptFilename = `${options.appRoot}/${options.docroot}/${options.entrypoint}`;
 	const documentRoot = `${options.appRoot}/${options.docroot}`;
@@ -318,8 +325,11 @@ const runPhp = async (
 			options.onLog("stderr", `workers-php: failed to seed php://input: ${(err as Error).message}\n`);
 		}
 
-		// The shutdown function is registered FIRST so output framing also
-		// survives `exit`/`die` in user code.
+		// The capture-ob is registered FIRST so the response (status,
+		// headers, body) gets stored into $GLOBALS['__workers_php_capture']
+		// regardless of which exit path the user script takes: normal
+		// fall-through, exit()/die() (zend_bailout flushes ob buffers
+		// before unwinding), or uncaught exception.
 		//
 		// We also explicitly call session_write_close() before returning,
 		// because pib_run() in our embed SAPI doesn't trigger
@@ -327,20 +337,47 @@ const runPhp = async (
 		// runs at the START of the next request. Without this, session
 		// writes via session_set_save_handler don't happen until the next
 		// request, which breaks read-after-write within the same isolate.
+		//
+		// session_write_close runs inside a finally-style wrapper around
+		// the require so it fires even on uncaught exceptions, but die()
+		// inside the script STILL skips it (zend_bailout doesn't run
+		// PHP-userland code after the bailout point). For that case we
+		// rely on PHP's automatic session_write_close-on-shutdown which
+		// runs during the NEXT pib_refresh. The ob_start callback fires
+		// regardless of die() so the response itself is always captured.
 		const code =
 			prelude.phpSource +
-			buildShutdown() +
+			buildCapture() +
 			`
 chdir(${phpQuoteString(documentRoot)});
+register_shutdown_function(function () {
+    // PHP triggers this on every script termination — normal end,
+    // exit(), die(), uncaught fatal. Use it to flush all pending ob
+    // buffers so the capture callback runs and $GLOBALS gets populated.
+    if (\\function_exists('session_status') && \\session_status() === PHP_SESSION_ACTIVE) {
+        try { \\session_write_close(); } catch (\\Throwable $__) {}
+    }
+    while (\\ob_get_level() > 0) {
+        try { @\\ob_end_flush(); } catch (\\Throwable $__) { break; }
+    }
+});
 try {
     require ${phpQuoteString(scriptFilename)};
 } catch (\\Throwable $__e) {
-    while (ob_get_level() > 1) ob_end_clean();
-    http_response_code(500);
-    echo "<pre>workers-php: uncaught PHP error\\n", htmlspecialchars((string)$__e), "</pre>";
+    while (\\ob_get_level() > 1) \\ob_end_clean();
+    \\http_response_code(500);
+    echo "<pre>workers-php: uncaught PHP error\\n", \\htmlspecialchars((string)$__e), "</pre>";
 }
+// Flush ob explicitly here too, in case the script returned normally —
+// register_shutdown_function only fires on PHP shutdown, but pib_run
+// doesn't call php_request_shutdown. (The shutdown function still
+// covers exit()/die() because those DO run shutdown handlers via
+// zend_bailout's cleanup path.)
 if (\\function_exists('session_status') && \\session_status() === PHP_SESSION_ACTIVE) {
-    \\session_write_close();
+    try { \\session_write_close(); } catch (\\Throwable $__) {}
+}
+while (\\ob_get_level() > 0) {
+    try { @\\ob_end_flush(); } catch (\\Throwable $__) { break; }
 }
 `;
 
@@ -362,8 +399,12 @@ if (\\function_exists('session_status') && \\session_status() === PHP_SESSION_AC
 		// Cleanup happens via capture.stop() below.
 	}
 
-	const {stdout} = capture.stop();
-	const {body, headers, status} = parseOutput(stdout);
+	capture.stop();
+
+	const captured = captureSlot.value;
+	const body = captured?.body ?? "";
+	const status = captured?.status ?? 200;
+	const headers = captured?.headers ?? new Headers();
 	if (!headers.has("Content-Type")) {
 		headers.set("Content-Type", "text/html; charset=utf-8");
 	}

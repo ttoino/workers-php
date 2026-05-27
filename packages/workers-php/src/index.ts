@@ -19,8 +19,17 @@ export type {
 export {getPhp, withPhpLock} from "./runtime/php-instance";
 export {ensureMounted} from "./runtime/mount";
 export type {MountOptions} from "./runtime/mount";
-export {buildPrelude, parseOutput, buildEpilogue, phpQuoteString} from "./runtime/cgi";
-export type {PreludeOptions, CapturedOutput} from "./runtime/cgi";
+export {
+	buildPrelude,
+	buildCapture,
+	makeCaptureSlot,
+	readCapture,
+	parseOutput,
+	buildEpilogue,
+	buildShutdown,
+	phpQuoteString,
+} from "./runtime/cgi";
+export type {PreludeOptions, CapturedOutput, CaptureSlot} from "./runtime/cgi";
 export {isStaticRequest, DEFAULT_STATIC_EXTENSIONS} from "./runtime/static";
 export {gunzip, iterTar} from "./runtime/tar";
 export type {TarEntry} from "./runtime/tar";
