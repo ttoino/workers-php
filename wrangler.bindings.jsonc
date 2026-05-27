@@ -1,0 +1,58 @@
+/**
+ * Wrangler config for the workers-php bindings demo.
+ *
+ * Use with: `npm run dev:bindings` or `npm run deploy:bindings`.
+ *
+ * The Worker reaches D1, R2, and KV from PHP via the workers-php bindings
+ * API (see packages/workers-php/README.md). Before first use, run:
+ *
+ *     wrangler d1 create workers-php-demo-db
+ *     wrangler r2 bucket create workers-php-demo-images
+ *     wrangler kv namespace create workers-php-demo-kv
+ *
+ * Then paste the resulting database_id and kv namespace id into the
+ * placeholders below.
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "workers-php-bindings-demo",
+	"main": "src/bindings-index.ts",
+	"compatibility_date": "2026-05-26",
+	"observability": {
+		"enabled": true
+	},
+	"upload_source_maps": true,
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"assets": {
+		"directory": "./dist-bindings",
+		"binding": "ASSETS",
+		"run_worker_first": true
+	},
+	"vars": {
+		"APP_ENV": "development"
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "workers-php-demo-db",
+			"database_id": "00000000-0000-0000-0000-000000000000"
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "IMAGES",
+			"bucket_name": "workers-php-demo-images"
+		}
+	],
+	"kv_namespaces": [
+		{
+			"binding": "KV",
+			"id": "0000000000000000000000000000000000"
+		}
+	],
+	"rules": [
+		{ "type": "Text", "globs": ["**/*.php"], "fallthrough": true }
+	]
+}

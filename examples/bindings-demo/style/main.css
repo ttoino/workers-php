@@ -1,0 +1,114 @@
+/* Tiny page styling for the workers-php bindings demo. */
+
+* { box-sizing: border-box; }
+
+body {
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    max-width: 56rem;
+    margin: 2rem auto;
+    padding: 0 1rem;
+    color: #222;
+}
+
+header {
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+header h1 {
+    margin: 0;
+    font-size: 1.6rem;
+}
+
+.env-info {
+    color: #666;
+    margin: 0.5rem 0 0;
+    font-size: 0.9rem;
+}
+
+section {
+    margin: 2rem 0;
+}
+
+section h2 {
+    border-bottom: 1px solid #eee;
+    padding-bottom: 0.3rem;
+}
+
+form {
+    margin: 1rem 0;
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    align-items: end;
+}
+
+label {
+    display: flex;
+    flex-direction: column;
+    font-size: 0.85rem;
+    color: #555;
+}
+
+label input {
+    margin-top: 0.2rem;
+    padding: 0.4rem;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    min-width: 12rem;
+}
+
+button {
+    padding: 0.45rem 1rem;
+    background: #2a5;
+    color: white;
+    border: 0;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+button:hover {
+    background: #237;
+}
+
+.entries {
+    list-style: none;
+    padding: 0;
+}
+
+.entries li {
+    padding: 0.4rem 0;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.when {
+    color: #aaa;
+    font-size: 0.8rem;
+    margin-left: 0.5rem;
+}
+
+.gallery {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
+    gap: 0.6rem;
+}
+
+.gallery figure {
+    margin: 0;
+    text-align: center;
+}
+
+.gallery img {
+    width: 100%;
+    height: 8rem;
+    object-fit: cover;
+    border-radius: 4px;
+}
+
+.gallery figcaption {
+    font-size: 0.7rem;
+    color: #888;
+    word-break: break-all;
+    margin-top: 0.3rem;
+}

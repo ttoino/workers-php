@@ -360,14 +360,17 @@ export interface CapturedOutput {
 }
 
 /**
- * Extract the CGI-style "Header: value\r\n...\r\n\r\nBODY" block(s)
- * from captured stdout and produce headers/status/body for the Response.
+ * Extract the CGI-style "Header: value\r\n...\r\n\r\nBODY" block(s) from
+ * captured stdout and produce headers/status/body for the Response.
  *
- * Why multiple blocks may appear: the embed SAPI in our php-wasm build
- * sometimes emits its own header block via `sapi_send_headers()` at the
- * end of a request (in addition to the one our ob_start callback writes
- * via `buildShutdown`). The duplicate is identical, so we just consume
- * every leading CGI block we find and let the last one win.
+ * Our ob_start callback emits a block that ALWAYS starts with
+ * `Status: <code>\r\n` plus PHP's header_list(). The embed SAPI in our
+ * php-wasm build sometimes emits its OWN duplicate block (also
+ * starting with X-Powered-By or similar) right before ours. To handle
+ * both, we consume any leading block whose first line is `Status:` (our
+ * own), and additionally consume one preceding block ONLY if it looks
+ * SAPI-emitted (no Status:, contains X-Powered-By). User-written body
+ * text that happens to contain colon-separated lines is left alone.
  */
 export const parseOutput = (stdout: string): CapturedOutput => {
 	const headers = new Headers();
@@ -375,28 +378,41 @@ export const parseOutput = (stdout: string): CapturedOutput => {
 
 	const cgiHeaderBlock = /^(?:[A-Za-z0-9!#$%&'*+\-.^_`|~]+:[^\n]*\r?\n)+\r?\n/;
 	let remaining = stdout;
-	let matched = false;
-	for (let i = 0; i < 4; i++) {
-		const match = remaining.match(cgiHeaderBlock);
-		if (!match) break;
-		matched = true;
-		for (const k of [...headers.keys()]) headers.delete(k);
-		for (const line of match[0].trimEnd().split(/\r?\n/)) {
-			const idx = line.indexOf(":");
-			if (idx <= 0) continue;
-			const name = line.slice(0, idx).trim();
-			const value = line.slice(idx + 1).trim();
-			if (/^status$/i.test(name)) {
-				const m = value.match(/^(\d{3})/);
-				if (m) status = Number(m[1]);
-				continue;
-			}
-			headers.append(name, value);
-		}
-		remaining = remaining.slice(match[0].length);
+
+	// First leading block: try to match.
+	const first = remaining.match(cgiHeaderBlock);
+	if (!first) {
+		return {body: stdout, headers, status};
 	}
 
-	return matched ? {body: remaining, headers, status} : {body: stdout, headers, status};
+	// Is this the SAPI's leftover block? Skip it if so and try the next.
+	const looksLikeSapiBlock = (block: string): boolean =>
+		!/^Status:/im.test(block) && /^X-Powered-By:/im.test(block);
+
+	let firstBlock = first[0];
+	remaining = remaining.slice(firstBlock.length);
+	if (looksLikeSapiBlock(firstBlock)) {
+		const second = remaining.match(cgiHeaderBlock);
+		if (second) {
+			firstBlock = second[0];
+			remaining = remaining.slice(second[0].length);
+		}
+	}
+
+	for (const line of firstBlock.trimEnd().split(/\r?\n/)) {
+		const idx = line.indexOf(":");
+		if (idx <= 0) continue;
+		const name = line.slice(0, idx).trim();
+		const value = line.slice(idx + 1).trim();
+		if (/^status$/i.test(name)) {
+			const m = value.match(/^(\d{3})/);
+			if (m) status = Number(m[1]);
+			continue;
+		}
+		headers.append(name, value);
+	}
+
+	return {body: remaining, headers, status};
 };
 
 /**

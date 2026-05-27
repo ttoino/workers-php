@@ -181,3 +181,6 @@ laravel/
 # files live under build/feup/, src/feup-index.ts, wrangler.feup.jsonc.
 feup-ltw-proj/
 dist-feup/
+
+# bindings-demo build output
+dist-bindings/
