@@ -2,25 +2,50 @@
 
 Monorepo containing the **[`workers-php`](packages/workers-php)** library —
 which lets you run a PHP project on Cloudflare Workers, with the project
-code stored in the Workers ASSETS binding — plus a demo Worker that
-exercises it.
+code stored in the Workers ASSETS binding — plus a couple of demo Workers
+that exercise it.
+
+PHP code can reach Cloudflare bindings directly through an `$env`
+superglobal that mirrors the JS handler's `env`:
+
+```php
+// PHP
+$row    = $env->DB->prepare('SELECT * FROM users WHERE id = ?')->bind(1)->first();
+$env->IMAGES->put('photos/cat.webp', $bytes, ['contentType' => 'image/webp']);
+$env->KV->put('cache:user:42', json_encode($user));
+echo $env->APP_ENV;
+```
+
+```ts
+// src/index.ts
+export default {
+  fetch: createPhpHandler({
+    docroot: ".", entrypoint: "router.php",
+    bindings: { DB: "d1", IMAGES: "r2", KV: "kv", APP_ENV: "var" },
+    staticRoutes: [{ pathPrefix: "/uploads/", from: "IMAGES" }],
+  }),
+};
+```
 
 ## Layout
 
 ```
-packages/workers-php/    The library. See packages/workers-php/README.md.
-build/                   Scripts that compile the PHP wasm artifact from
-                         seanmorris/php-wasm. See build/README.md.
-src/index.ts             Demo Worker, ~10 lines, consumes the library.
-src/feup-index.ts        Second Worker that deploys the xaufome PHP app
-                         (ttoino/feup-ltw-proj) — see "Run the xaufome
-                         deployment" below.
-php/                     Demo PHP project (tiny front controller + a few pages).
-wrangler.jsonc           Wrangler config for the small built-in demo.
-wrangler.feup.jsonc      Wrangler config for the xaufome deployment.
+packages/workers-php/         The library. See packages/workers-php/README.md.
+build/                        Scripts that compile the PHP wasm artifact from
+                              seanmorris/php-wasm. See build/README.md.
+examples/bindings-demo/       Reference PHP app using D1 + R2 + KV + vars
+                              through the `$env` superglobal.
+src/index.ts                  Tiny demo Worker (~10 lines), the original PHP demo.
+src/bindings-index.ts         Worker entrypoint for examples/bindings-demo.
+src/feup-index.ts             Worker that deploys ttoino/feup-ltw-proj
+                              (xaufome). See "Run the xaufome deployment".
+php/                          PHP project for the basic demo.
+wrangler.jsonc                Basic demo config.
+wrangler.bindings.jsonc       Bindings-demo config (D1 + R2 + KV + var).
+wrangler.feup.jsonc           xaufome deployment config.
 ```
 
-## Run the demo locally
+## Run the basic demo
 
 ```bash
 npm install
@@ -35,6 +60,32 @@ Routes:
 - `/hello?name=...` — query-string demo
 - `/check` — PHP extensions / Laravel-requirements diagnostic
 - everything else — 404 from the PHP router
+
+## Run the bindings demo
+
+A second demo under `examples/bindings-demo/` exercises D1, R2, KV, and
+vars via the `$env` superglobal that workers-php injects into PHP.
+
+```bash
+npx wrangler d1 create        workers-php-demo-db
+npx wrangler r2 bucket create workers-php-demo-images
+npx wrangler kv namespace create workers-php-demo-kv
+# Paste the resulting IDs into wrangler.bindings.jsonc, then:
+npm run migrate-bindings   # apply schema.sql to local D1
+npm run dev:bindings       # serve at http://localhost:8787
+# or: npm run deploy:bindings
+```
+
+Features:
+- `/` — guestbook (D1 reads/writes), image gallery (R2 list), visit counter (KV).
+- `POST /guestbook` — D1 INSERT with named placeholders + lastInsertId.
+- `POST /upload` — `multipart/form-data` upload → R2 PUT with content-type.
+- `GET /uploads/<key>` — served straight from R2 via `staticRoutes`.
+- `GET /counter?key=…` — KV increment-and-show.
+
+See [`examples/bindings-demo/README.md`](examples/bindings-demo/README.md)
+and [`packages/workers-php/README.md`](packages/workers-php/README.md)
+for the full bindings API.
 
 ## Run the xaufome deployment
 

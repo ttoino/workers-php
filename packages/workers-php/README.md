@@ -115,6 +115,11 @@ Returns a Worker fetch handler `(request, env, ctx) => Response`.
 | `envOverrides` | `{}` | `.env` keys written to `<appRoot>/.env` and `putenv()`-injected per request. |
 | `displayErrors` | `true` | PHP `display_errors` ini per request. Set `false` for production so warnings/notices don't leak into HTML. |
 | `errorReporting` | `"E_ALL"` | Raw expression for `error_reporting(...)`. Use e.g. `"E_ERROR \| E_PARSE"` to silence everything below errors. |
+| `maxBodyBytes` | `50_000_000` | Cap on request body size. Oversized → 413 Payload Too Large. |
+| `bindings` | `{}` | Cloudflare bindings exposed to PHP via `$env`. See below. |
+| `staticRoutes` | `[]` | URL-prefix matches routed to a binding before the ASSETS short-circuit. |
+| `bridgeMethods` | `{}` | Raw `Module.workersPhpBridge` entries for `workers_php_call()`. |
+| `bridgeMethodsForRequest` | — | `(request, env) => methods` for per-request bridge methods. |
 | `onLog` | `console.warn`-stderr | `(level, text) => void` for runtime telemetry. |
 
 Default static extensions (forwarded straight to `env.ASSETS.fetch()`
@@ -159,6 +164,104 @@ If you need to drive PHP yourself, the package also exports:
 - `ensureMounted(php, assets, opts)` — idempotent ASSETS-backed mount.
 - `buildPrelude(request, opts)` / `parseOutput(stdout)` / `buildEpilogue()` — CGI shims.
 - `iterTar(buf)` / `gunzip(bytes)` — minimal POSIX ustar parser and gzip decoder.
+- `installBridge(php, methods)` / `setBridgeMethods(php, methods)` — install
+  arbitrary `Module.workersPhpBridge[method]` handlers callable from PHP via
+  `workers_php_call($method, $args)`.
+
+## Cloudflare bindings in PHP
+
+`createPhpHandler` accepts a `bindings` map mirroring the user's
+`wrangler.jsonc`. Each declared name shows up on a magic `$env`
+superglobal in PHP, with method names that mirror the Workers JS
+binding API.
+
+```jsonc
+// wrangler.jsonc
+{
+  "d1_databases":  [{ "binding": "DB",     "database_name": "...", "database_id": "..." }],
+  "r2_buckets":    [{ "binding": "IMAGES", "bucket_name":   "..." }],
+  "kv_namespaces": [{ "binding": "KV",     "id":            "..." }],
+  "vars":          { "APP_ENV": "production" }
+}
+```
+
+```ts
+// src/index.ts
+import { createPhpHandler } from "workers-php";
+
+export default {
+  fetch: createPhpHandler({
+    docroot: ".",
+    entrypoint: "index.php",
+    bindings: {
+      DB:      "d1",
+      IMAGES:  "r2",
+      KV:      "kv",
+      APP_ENV: "var",
+    },
+    staticRoutes: [
+      // GET /uploads/<key> → env.IMAGES.get(<key>) (falls back to ASSETS).
+      { pathPrefix: "/uploads/", from: "IMAGES" },
+    ],
+  }),
+};
+```
+
+```php
+// index.php
+/** @var \WorkersPHP\Env $env */
+
+// D1
+$row = $env->DB->prepare('SELECT * FROM x WHERE id = ?')->bind(1)->first();
+$env->DB->prepare('INSERT INTO x (n) VALUES (:n)')
+        ->execute([':n' => 'hello'])
+        ->run();
+
+// R2
+$obj = $env->IMAGES->get('photos/cat.webp');
+if ($obj) echo $obj->body();           // raw bytes
+$env->IMAGES->put('photos/cat.webp', $bytes, ['contentType' => 'image/webp']);
+
+// KV
+$cached = $env->KV->get('cache:user:42');
+$env->KV->put('cache:user:42', json_encode($user));
+
+// vars / secrets
+echo $env->APP_ENV;                    // "production"
+```
+
+**PDO compatibility shim.** For apps that hardcode `new PDO('sqlite:...')`
+(everything Laravel-shaped), workers-php ships `\WorkersPHP\D1PDO` —
+a drop-in that implements the PDO surface area people actually use
+(`prepare/query/exec/lastInsertId/begin/commit/rollback/quote/
+setAttribute/getAttribute/errorInfo` plus a PDOStatement-compatible
+class with `execute/bindValue/bindParam/fetch/fetchAll/fetchColumn/
+fetchObject/rowCount/columnCount/closeCursor/setFetchMode` and
+iteration). Named placeholders (`:name`) are translated to positional
+inside the shim, since D1's binding API is positional-only.
+
+```php
+// One-line swap from PDO to D1:
+$pdo = new \WorkersPHP\D1PDO($env->DB);    // was: new PDO('sqlite:main.db')
+$stmt = $pdo->prepare('SELECT * FROM users WHERE email = :email');
+$stmt->execute([':email' => $email]);
+$user = $stmt->fetch();
+```
+
+The full binding API lives in `packages/workers-php/php/lib.php`. A
+working example exercising D1 + R2 + KV + vars is in
+[`examples/bindings-demo/`](../../examples/bindings-demo).
+
+### Under the hood
+
+All binding calls funnel through one Asyncify-suspending PHP function,
+`workers_php_call(string $method, array $args)`, exported by the bundled
+`workers_php_bridge` C extension. The library installs
+`Module.workersPhpBridge` with one JS handler per binding operation
+(`d1_all`, `d1_run`, `r2_get`, `r2_put`, `kv_get`, …). PHP code never
+sees the bridge directly — it goes through the `\WorkersPHP\D1Database` /
+`R2Bucket` / `KVNamespace` classes — but you can add your own dispatch
+entries via the `bridgeMethods` / `bridgeMethodsForRequest` options.
 
 ## How it works
 
