@@ -90,51 +90,72 @@ for the full bindings API.
 ## Run the xaufome deployment
 
 A second deployment recipe runs [ttoino/feup-ltw-proj][feup] (xaufome),
-a 65-file PHP-from-scratch restaurant site backed by SQLite. The
-upstream repo isn't committed here; the build script clones it and
-overlays a router and a pre-built `main.db`.
+a 65-file PHP-from-scratch restaurant site originally written for a
+LAMP stack. Persistence is now backed by:
+
+- **Cloudflare D1** for the relational data (users, restaurants,
+  dishes, menus, orders, reviews) via `$env->DB`.
+- **Cloudflare R2** for user-uploaded restaurant/dish/menu/profile
+  images via `$env->IMAGES`, served straight back out at
+  `/assets/pictures/<type>/<id>.webp` with a `staticRoutes` rule.
+
+The upstream repo isn't committed here; the build script clones it,
+overlays a router and a few small adapter files, and the rest of the
+PHP code runs unchanged.
 
 ```bash
 git clone https://github.com/ttoino/feup-ltw-proj.git feup-ltw-proj
-npm install                # if you haven't already
+npm install
+
+# One-time wrangler setup
+npx wrangler d1     create xaufome-db
+npx wrangler r2     bucket create xaufome-images
+# Paste the resulting D1 UUID into wrangler.feup.jsonc
+
+# Seed the schema into local D1 (~5 seconds)
+npm run feup:migrate:local
+
 npm run dev:feup           # serves at http://localhost:8787
-# or: npm run deploy:feup
+# or: npm run deploy:feup  (preceded by `npm run feup:migrate:remote`)
 ```
 
-Required on the host: the `sqlite3` CLI (used to seed `database/main.db`
-from the project's `database/schema/*.sql` files).
+Working end-to-end (verified against `wrangler dev`):
 
-Working: home, login, register, profile, restaurant detail pages,
-search, the JSON API (`/api/...`), static assets, the 404 page, and
-the register/login/logout flow end to end (sessions are PHP-file-based
-in the wasm's RAM filesystem, so they only live within one isolate).
+- Home, login, register, profile, restaurant detail pages, search, JSON
+  API, static assets, 404 page.
+- Register/login/logout flow.
+- `/cart/` (upstream `pageError()`-without-require bug fixed in the
+  overlay).
+- **Multipart image uploads** to `actions/edit_profile.php` and
+  `actions/edit_restaurant.php`. Resized via GD, encoded as WebP, stored
+  in R2.
+- **Persistence across isolate recycles.** Registrations, reviews, cart
+  contents, uploaded images, **and login sessions** all survive
+  `wrangler dev` restarts. PHP `$_SESSION` is backed by the
+  `workers_php_sessions` table in D1 via `SessionHandlerD1` (auto-
+  created on first use; no migration needed).
 
-Not working — by design, since the project was never written for a
-serverless backend:
+Known limitations (deferred):
 
-- **Image uploads** (`actions/edit_profile.php`, `actions/edit_restaurant.php`)
-  go through `$_FILES`, which workers-php's CGI prelude doesn't parse
-  for `multipart/form-data` bodies. The build overlay flips every form
-  to `application/x-www-form-urlencoded` so login/register/etc. work,
-  at the cost of image uploads.
-- **Writes don't persist across isolate recycles.** Registrations,
-  reviews, and cart edits all succeed but vanish when the Worker isolate
-  is replaced (and on every `wrangler dev` restart).
-- **`/cart/`** throws because the upstream `cart/index.php` calls
-  `pageError()` without `require`ing `lib/page.php`. That's a bug in
-  the project's code, not the runtime.
+- **PUT / DELETE bodies** that read `$_POST` via `parse_str(file_get_contents('php://input'))`
+  see an empty body (the library's prelude doesn't populate `$_POST`
+  for those verbs yet).
+- **Outbound HTTP** from PHP is unavailable (the `curl` extension isn't
+  compiled into the bundled wasm); the app doesn't need it.
 
 The build steps live in `build/`:
 
-- `build/build-feup.sh` — seeds `database/main.db` from the project
-  schema, overlays `build/feup/router.php`, and patches the project's
-  `templates/form.php` + `lib/session.php` for the workers-php runtime.
+- `build/build-feup.sh` — installs router.php, overlays a D1-backed
+  `database/connection.php` and an R2-backed `lib/files.php`, patches
+  `lib/session.php` (cookie_secure conditional on HTTPS), patches
+  `database/models/model.php` (`HasImage::getImagePath` no longer
+  probes MEMFS), patches `cart/index.php` (adds missing `require_once`),
+  copies default-image placeholders.
 - `build/build-feup-static.sh` — copies `style/`, `scripts/`, `assets/`
-  from the project into `dist-feup/` so Wrangler serves them as static
-  files directly (the same content is also inside `app.tar.gz` so PHP
-  can `require` it).
-- `build/feup/router.php` — Apache-style front controller (resolves
-  `/foo/` → `/foo/index.php`, redirects `/foo` → `/foo/`, etc.).
+  into `dist-feup/` for direct ASSETS serving.
+- `build/feup/router.php` — Apache-style front controller.
+- `build/feup/connection.php` — D1-backed `getDBConnection()`.
+- `build/feup/files.php` — R2-backed `uploadImage()`.
 
 [feup]: https://github.com/ttoino/feup-ltw-proj
 

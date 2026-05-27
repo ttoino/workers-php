@@ -120,6 +120,7 @@ Returns a Worker fetch handler `(request, env, ctx) => Response`.
 | `staticRoutes` | `[]` | URL-prefix matches routed to a binding before the ASSETS short-circuit. |
 | `bridgeMethods` | `{}` | Raw `Module.workersPhpBridge` entries for `workers_php_call()`. |
 | `bridgeMethodsForRequest` | — | `(request, env) => methods` for per-request bridge methods. |
+| `sessionHandler` | — | Persist `$_SESSION` to D1 or KV. See [Sessions](#sessions). |
 | `onLog` | `console.warn`-stderr | `(level, text) => void` for runtime telemetry. |
 
 Default static extensions (forwarded straight to `env.ASSETS.fetch()`
@@ -262,6 +263,47 @@ All binding calls funnel through one Asyncify-suspending PHP function,
 sees the bridge directly — it goes through the `\WorkersPHP\D1Database` /
 `R2Bucket` / `KVNamespace` classes — but you can add your own dispatch
 entries via the `bridgeMethods` / `bridgeMethodsForRequest` options.
+
+## Sessions
+
+Out of the box, PHP `$_SESSION` is backed by `/tmp/sess_<id>` files inside
+the wasm's RAM filesystem — they vanish on every isolate recycle. To make
+sessions survive, point the save handler at D1 or KV via the
+`sessionHandler` option:
+
+```ts
+createPhpHandler({
+  bindings: { DB: "d1" },        // or { KV: "kv" }
+  sessionHandler: {
+    backend: "d1",               // or "kv"
+    from:    "DB",               // binding name
+    // table:      "workers_php_sessions",  // D1 only, optional
+    // keyPrefix:  "sess:",                 // KV only, optional
+    // ttlSeconds: 86400,                   // optional, default 24h
+    // strictMode: true,                    // session.use_strict_mode
+  },
+});
+```
+
+The library calls `session_set_save_handler($handler, true)` in the
+prelude — your PHP code's `session_start()` / `$_SESSION[...]` / etc.
+keep working unchanged.
+
+D1 backend creates `workers_php_sessions(id TEXT PRIMARY KEY, data BLOB,
+expires INTEGER)` on first use; the result is cached per-isolate so
+subsequent requests skip the DDL round-trip. Use D1 when you want strong
+consistency and no per-key write-rate limit; xaufome's login flow uses
+this.
+
+KV backend writes one value per session id under the configured prefix
+with `expirationTtl` set to `ttlSeconds`, so expiry is native. Watch out
+for KV's 1-write-per-second-per-key cap on chatty sessions, plus its
+~60-second eventual consistency window.
+
+You can also ship your own handler — instantiate any
+`\SessionHandlerInterface` and register it yourself in PHP-userland
+before `session_start()`. The auto-install is only triggered when
+`sessionHandler` is set.
 
 ## How it works
 

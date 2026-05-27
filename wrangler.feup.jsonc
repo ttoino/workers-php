@@ -5,6 +5,15 @@
  * wrangler.jsonc (without `.feup`) still drives the small built-in demo
  * Worker; both share the same workers-php library but bundle different
  * PHP projects.
+ *
+ * Persistence is backed by Cloudflare D1 (relational data) and R2
+ * (user-uploaded images). Before first use:
+ *
+ *   wrangler d1     create xaufome-db
+ *   wrangler r2     bucket create xaufome-images
+ *   npm run feup:migrate:local    # seed schema + populate into the local D1
+ *
+ * Paste the resulting D1 UUID over `database_id` below.
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
@@ -21,14 +30,26 @@
 	// The xaufome PHP project gets bundled into ./dist-feup/app.tar.gz by
 	// `npm run build-feup`. The runtime fetches it on first request via
 	// env.ASSETS and mounts it into the in-process PHP FS. Static files
-	// (CSS/JS/images/etc.) are short-circuited to ASSETS by the handler
-	// before reaching the router; `run_worker_first` is required so PHP
-	// routing wins over Wrangler's built-in static matcher.
+	// (CSS/JS/built-in placeholder SVGs) are served from ASSETS; user-
+	// uploaded images are served from R2 via `staticRoutes`.
 	"assets": {
 		"directory": "./dist-feup",
 		"binding": "ASSETS",
 		"run_worker_first": true
 	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "xaufome-db",
+			"database_id": "00000000-0000-0000-0000-000000000000"
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "IMAGES",
+			"bucket_name": "xaufome-images"
+		}
+	],
 	// The workers-php library imports .php helper files as string modules.
 	"rules": [
 		{ "type": "Text", "globs": ["**/*.php"], "fallthrough": true }

@@ -136,6 +136,11 @@ export interface PreludeOptions {
 	/** PHP expression injected before the user's entrypoint to declare
 	 *  `$env`. The library builds this from `PhpHandlerOptions.bindings`. */
 	envDeclaration?: string;
+	/** PHP expression injected after `$env` to install a session save
+	 *  handler. The library builds this from
+	 *  `PhpHandlerOptions.sessionHandler`. Runs before any user
+	 *  `session_start()`. */
+	sessionDeclaration?: string;
 	/** Path of the PHP runtime library to require_once before the entrypoint
 	 *  (e.g. `/persist/workers-php-lib.php`). Empty string = none. */
 	runtimeLibraryPath?: string;
@@ -320,6 +325,7 @@ export const buildPrelude = async (
 	const errorReporting = opts.errorReporting ?? "E_ALL";
 
 	const envDeclaration = opts.envDeclaration ?? "";
+	const sessionDeclaration = opts.sessionDeclaration ?? "";
 	const runtimeRequire = opts.runtimeLibraryPath
 		? `require_once ${phpQuoteString(opts.runtimeLibraryPath)};\n`
 		: "";
@@ -336,7 +342,7 @@ $_COOKIE = ${phpArrayLiteral(cookies)};
 $_REQUEST = array_merge($_GET, $_POST, $_COOKIE);
 ${putEnvLines}ini_set('display_errors', ${phpQuoteString(displayErrors ? "1" : "0")});
 error_reporting(${errorReporting});
-${runtimeRequire}${envDeclaration}`,
+${runtimeRequire}${envDeclaration}${sessionDeclaration}`,
 		stagedFiles,
 		stdinBytes: bodyBytes,
 	};

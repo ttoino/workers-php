@@ -268,10 +268,12 @@ if (!class_exists(__NAMESPACE__ . '\\Env')) {
      * that hardcodes `new PDO('sqlite:...')` keep working with a one-line
      * swap to `new \WorkersPHP\D1PDO($env->DB)`.
      *
-     * Not extending \PDO so we don't have to satisfy its constructor; we
-     * implement the surface area apps actually use.
+     * Extends `\PDO` (with a throwaway in-memory parent instance) so that
+     * type hints like `function foo(\PDO $db)` in user code accept it. The
+     * parent PDO is never actually used — every method is overridden to
+     * route through D1.
      */
-    final class D1PDO {
+    final class D1PDO extends \PDO {
         private D1Database $d1;
         private int $lastInsertId = 0;
         private array $errorInfo = ['', null, null];
@@ -283,23 +285,28 @@ if (!class_exists(__NAMESPACE__ . '\\Env')) {
         private bool $inTxn = false;
 
         public function __construct(string|D1Database $db) {
+            // Satisfy \PDO's constructor with a tiny in-memory database we
+            // never read from. Required only so the LSP `extends \PDO`
+            // contract is honoured for type-hint compatibility.
+            parent::__construct('sqlite::memory:');
             $this->d1 = is_string($db) ? new D1Database($db) : $db;
         }
 
-        public function prepare(string $sql): D1PDOStatement {
-            return new D1PDOStatement($this, new D1PreparedStatement($this->d1->binding, $sql), $this->attributes);
+        public function prepare(string $query, array $options = []): \PDOStatement|false {
+            return D1PDOStatement::create($this, new D1PreparedStatement($this->d1->binding, $query), $this->attributes);
         }
 
-        public function query(string $sql, ?int $fetchMode = null): D1PDOStatement {
-            $stmt = $this->prepare($sql);
-            if ($fetchMode !== null) $stmt->setFetchMode($fetchMode);
-            $stmt->execute();
+        public function query(string $query, ?int $fetchMode = null, mixed ...$fetchModeArgs): \PDOStatement|false {
+            $stmt = $this->prepare($query);
+            if ($stmt === false) return false;
+            if ($fetchMode !== null && $stmt instanceof D1PDOStatement) $stmt->setFetchMode($fetchMode);
+            if ($stmt instanceof D1PDOStatement) $stmt->execute();
             return $stmt;
         }
 
-        public function exec(string $sql): int {
+        public function exec(string $statement): int|false {
             try {
-                $result = $this->d1->exec($sql);
+                $result = $this->d1->exec($statement);
                 return (int) ($result['count'] ?? 0);
             } catch (\Throwable $e) {
                 $this->errorInfo = ['HY000', null, $e->getMessage()];
@@ -308,7 +315,7 @@ if (!class_exists(__NAMESPACE__ . '\\Env')) {
             }
         }
 
-        public function lastInsertId(?string $name = null): string {
+        public function lastInsertId(?string $name = null): string|false {
             return (string) $this->lastInsertId;
         }
 
@@ -323,7 +330,7 @@ if (!class_exists(__NAMESPACE__ . '\\Env')) {
             return true;
         }
         public function commit(): bool { $this->inTxn = false; return true; }
-        public function rollback(): bool { $this->inTxn = false; return true; }
+        public function rollBack(): bool { $this->inTxn = false; return true; }
         public function inTransaction(): bool { return $this->inTxn; }
 
         public function quote(string $string, int $type = \PDO::PARAM_STR): string|false {
@@ -353,17 +360,27 @@ if (!class_exists(__NAMESPACE__ . '\\Env')) {
     }
 
     /** PDOStatement-compatible shim. */
-    final class D1PDOStatement implements \IteratorAggregate {
+    /**
+     * Extends \PDOStatement so type hints like `PDOStatement $stmt` accept
+     * the D1-backed variant. \PDOStatement's constructor is private — we
+     * bypass it via ReflectionClass::newInstanceWithoutConstructor() and
+     * initialise via a factory + ::init().
+     */
+    final class D1PDOStatement extends \PDOStatement implements \IteratorAggregate {
         private ?D1Result $result = null;
         private int $cursor = 0;
         private int $fetchMode;
+        private D1PDO $pdo;
+        private D1PreparedStatement $stmt;
+        /** @var array<int|string, mixed> */
+        private array $pendingBindings = [];
 
-        public function __construct(
-            private D1PDO $pdo,
-            private D1PreparedStatement $stmt,
-            array $attributes,
-        ) {
-            $this->fetchMode = $attributes[\PDO::ATTR_DEFAULT_FETCH_MODE] ?? \PDO::FETCH_ASSOC;
+        public static function create(D1PDO $pdo, D1PreparedStatement $stmt, array $attributes): self {
+            $obj = (new \ReflectionClass(self::class))->newInstanceWithoutConstructor();
+            $obj->pdo = $pdo;
+            $obj->stmt = $stmt;
+            $obj->fetchMode = $attributes[\PDO::ATTR_DEFAULT_FETCH_MODE] ?? \PDO::FETCH_ASSOC;
+            return $obj;
         }
 
         public function execute(?array $params = null): bool {
@@ -384,31 +401,29 @@ if (!class_exists(__NAMESPACE__ . '\\Env')) {
             }
         }
 
-        public function bindValue(int|string $key, mixed $value, int $type = \PDO::PARAM_STR): bool {
+        public function bindValue(int|string $param, mixed $value, int $type = \PDO::PARAM_STR): bool {
             // Translate to positional/named binding via the underlying D1PreparedStatement.
-            // Easiest: stash, fold into the next execute() call.
-            $this->pendingBindings[$key] = $value;
+            // Stash and fold into the next execute() call.
+            $this->pendingBindings[$param] = $value;
             return true;
         }
 
-        public function bindParam(int|string $key, mixed &$value, int $type = \PDO::PARAM_STR): bool {
-            return $this->bindValue($key, $value, $type);
+        public function bindParam(int|string $param, mixed &$var, int $type = \PDO::PARAM_STR, int $maxLength = 0, mixed $driverOptions = null): bool {
+            return $this->bindValue($param, $var, $type);
         }
-        /** @var array<int|string, mixed> */
-        private array $pendingBindings = [];
 
-        public function fetch(int $mode = 0): mixed {
+        public function fetch(int $mode = \PDO::FETCH_DEFAULT, int $cursorOrientation = \PDO::FETCH_ORI_NEXT, int $cursorOffset = 0): mixed {
             if (!$this->result) return false;
             $row = $this->result->results[$this->cursor] ?? null;
             if ($row === null) return false;
             $this->cursor++;
-            $effective = $mode ?: $this->fetchMode;
+            $effective = $mode && $mode !== \PDO::FETCH_DEFAULT ? $mode : $this->fetchMode;
             return $this->shapeRow($row, $effective);
         }
 
-        public function fetchAll(int $mode = 0): array {
+        public function fetchAll(int $mode = \PDO::FETCH_DEFAULT, mixed ...$args): array {
             if (!$this->result) return [];
-            $effective = $mode ?: $this->fetchMode;
+            $effective = $mode && $mode !== \PDO::FETCH_DEFAULT ? $mode : $this->fetchMode;
             return array_map(fn($r) => $this->shapeRow($r, $effective), array_slice($this->result->results, $this->cursor));
         }
 
@@ -418,11 +433,12 @@ if (!class_exists(__NAMESPACE__ . '\\Env')) {
             return $row[$column] ?? null;
         }
 
-        public function fetchObject(string $class = 'stdClass', array $args = []): object|false {
+        public function fetchObject(?string $class = 'stdClass', array $constructorArgs = []): object|false {
             $row = $this->fetch(\PDO::FETCH_ASSOC);
             if ($row === false) return false;
+            $class = $class ?? 'stdClass';
             if ($class === 'stdClass') return (object) $row;
-            $obj = new $class(...$args);
+            $obj = new $class(...$constructorArgs);
             foreach ($row as $k => $v) $obj->$k = $v;
             return $obj;
         }
@@ -442,7 +458,7 @@ if (!class_exists(__NAMESPACE__ . '\\Env')) {
             return true;
         }
 
-        public function setFetchMode(int $mode): bool {
+        public function setFetchMode(int $mode, mixed ...$args): true {
             $this->fetchMode = $mode;
             return true;
         }
@@ -598,6 +614,176 @@ if (!class_exists(__NAMESPACE__ . '\\Env')) {
          */
         public function list(array $opts = []): array {
             return \workers_php_call('kv_list', [$this->binding, $opts]);
+        }
+    }
+
+    // ---------- Sessions ----------
+
+    /**
+     * D1-backed PHP session save handler.
+     *
+     * Persists sessions to a SQLite table inside the configured D1
+     * database, so PHP `$_SESSION` survives Worker isolate recycles.
+     *
+     * The table is `workers_php_sessions` by default and is created on
+     * first use by the JS-side `d1_ensure_sessions_table` dispatch
+     * (cached per-isolate). Use `setupSchema: false` and pre-create
+     * the table yourself if you want explicit control.
+     *
+     * Layout:
+     *   CREATE TABLE workers_php_sessions (
+     *     id      TEXT PRIMARY KEY,
+     *     data    BLOB NOT NULL,
+     *     expires INTEGER NOT NULL
+     *   );
+     *
+     * Register via session_set_save_handler($handler, true) before any
+     * session_start() (the createPhpHandler({ sessionHandler }) option
+     * does this automatically).
+     */
+    class SessionHandlerD1 implements \SessionHandlerInterface, \SessionUpdateTimestampHandlerInterface {
+        public function __construct(
+            private D1Database $db,
+            private string $table = 'workers_php_sessions',
+            private int $ttlSeconds = 86400,
+        ) {}
+
+        public function open(string $path, string $name): bool { return true; }
+        public function close(): bool { return true; }
+
+        public function read(string $id): string {
+            try {
+                $row = $this->db->prepare(
+                    "SELECT data FROM \"{$this->table}\" WHERE id = ? AND expires > ?"
+                )->bind($id, time())->first();
+                if (!is_array($row)) return '';
+                return (string) ($row['data'] ?? '');
+            } catch (\Throwable $e) {
+                \error_log("workers-php SessionHandlerD1::read failed: " . $e->getMessage());
+                return '';
+            }
+        }
+
+        public function write(string $id, string $data): bool {
+            
+            try {
+                $this->db->prepare(
+                    "INSERT INTO \"{$this->table}\"(id, data, expires) VALUES(?, ?, ?) " .
+                    "ON CONFLICT(id) DO UPDATE SET data = excluded.data, expires = excluded.expires"
+                )->bind($id, $data, time() + $this->ttlSeconds)->run();
+                return true;
+            } catch (\Throwable $e) {
+                \error_log("workers-php SessionHandlerD1::write failed: " . $e->getMessage());
+                return false;
+            }
+        }
+
+        public function destroy(string $id): bool {
+            try {
+                $this->db->prepare(
+                    "DELETE FROM \"{$this->table}\" WHERE id = ?"
+                )->bind($id)->run();
+                return true;
+            } catch (\Throwable $e) {
+                \error_log("workers-php SessionHandlerD1::destroy failed: " . $e->getMessage());
+                return false;
+            }
+        }
+
+        public function gc(int $maxLifetime): int|false {
+            try {
+                $this->db->prepare(
+                    "DELETE FROM \"{$this->table}\" WHERE expires < ?"
+                )->bind(time())->run();
+                return 0;
+            } catch (\Throwable $e) {
+                \error_log("workers-php SessionHandlerD1::gc failed: " . $e->getMessage());
+                return false;
+            }
+        }
+
+        public function validateId(string $id): bool {
+            try {
+                $row = $this->db->prepare(
+                    "SELECT 1 AS x FROM \"{$this->table}\" WHERE id = ? AND expires > ?"
+                )->bind($id, time())->first();
+                return is_array($row);
+            } catch (\Throwable $e) {
+                return false;
+            }
+        }
+
+        public function updateTimestamp(string $id, string $data): bool {
+            return $this->write($id, $data);
+        }
+    }
+
+    /**
+     * KV-backed PHP session save handler.
+     *
+     * Persists sessions to a Workers KV namespace, keyed by
+     * `<prefix><session-id>`. KV natively supports per-key TTL, so the
+     * gc() callback is a no-op. KV's eventual consistency window (~60s
+     * across regions) and 1-write/sec/key limit are real caveats for
+     * busy sessions.
+     */
+    class SessionHandlerKV implements \SessionHandlerInterface, \SessionUpdateTimestampHandlerInterface {
+        public function __construct(
+            private KVNamespace $kv,
+            private string $prefix = 'sess:',
+            private int $ttlSeconds = 86400,
+        ) {}
+
+        public function open(string $path, string $name): bool { return true; }
+        public function close(): bool { return true; }
+
+        public function read(string $id): string {
+            try {
+                $value = $this->kv->get($this->prefix . $id);
+                return $value === null ? '' : (string) $value;
+            } catch (\Throwable $e) {
+                \error_log("workers-php SessionHandlerKV::read failed: " . $e->getMessage());
+                return '';
+            }
+        }
+
+        public function write(string $id, string $data): bool {
+            try {
+                $this->kv->put(
+                    $this->prefix . $id,
+                    $data,
+                    ['expirationTtl' => $this->ttlSeconds],
+                );
+                return true;
+            } catch (\Throwable $e) {
+                \error_log("workers-php SessionHandlerKV::write failed: " . $e->getMessage());
+                return false;
+            }
+        }
+
+        public function destroy(string $id): bool {
+            try {
+                $this->kv->delete($this->prefix . $id);
+                return true;
+            } catch (\Throwable $e) {
+                \error_log("workers-php SessionHandlerKV::destroy failed: " . $e->getMessage());
+                return false;
+            }
+        }
+
+        // KV expires items natively via expirationTtl; nothing to do.
+        public function gc(int $maxLifetime): int|false { return 0; }
+
+        public function validateId(string $id): bool {
+            try {
+                return $this->kv->get($this->prefix . $id) !== null;
+            } catch (\Throwable $e) {
+                return false;
+            }
+        }
+
+        public function updateTimestamp(string $id, string $data): bool {
+            return $this->write($id, $data);
         }
     }
 }

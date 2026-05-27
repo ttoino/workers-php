@@ -353,6 +353,54 @@ echo json_encode(['row' => $row, 'last_id' => $id]);
 		expect(parseInt(json.last_id, 10)).toBeGreaterThan(0);
 	}, 30000);
 
+	it("staticRoutes missRewrite rewrites the path on R2 miss before ASSETS fallback", async () => {
+		const tar = buildTar([
+			{name: "app/", type: "dir"},
+			{name: "app/index.php", data: "<?php echo 'should not run for static';"},
+		]);
+		const r2 = makeMockR2();
+		// Note: NOT pre-populating R2; this test only exercises the miss path.
+
+		const env = {
+			ASSETS: {
+				async fetch(req: Request | string | URL) {
+					const url = typeof req === "string" ? req : req instanceof URL ? req.toString() : req.url;
+					if (url.endsWith("/app.tar.gz")) return new Response(gzipSync(tar), {status: 200});
+					if (url.endsWith("/uploads/default.svg")) {
+						return new Response("<svg/>", {
+							status: 200,
+							headers: {"Content-Type": "image/svg+xml"},
+						});
+					}
+					return new Response("not found", {status: 404});
+				},
+			},
+			IMAGES: r2,
+		};
+
+		const handler = createPhpHandler({
+			appRoot: "/persist/static-rewrite",
+			docroot: ".",
+			entrypoint: "index.php",
+			bindings: {IMAGES: "r2"},
+			staticRoutes: [{
+				pathPrefix: "/uploads/",
+				from: "IMAGES",
+				missRewrite: (p) => p.replace(/\/[0-9]+\.webp$/, "/default.svg"),
+			}],
+		});
+
+		// Request /uploads/42.webp — not in R2, gets rewritten to
+		// /uploads/default.svg before ASSETS serves the placeholder.
+		const res = await handler(new Request("https://example.com/uploads/42.webp"), env, {
+			waitUntil: () => {},
+			passThroughOnException: () => {},
+		} as unknown as ExecutionContext);
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Content-Type")).toBe("image/svg+xml");
+		expect(await res.text()).toBe("<svg/>");
+	}, 30000);
+
 	it("staticRoutes routes a URL prefix into an R2 bucket and falls back to ASSETS", async () => {
 		const tar = buildTar([
 			{name: "app/", type: "dir"},
@@ -400,5 +448,251 @@ echo json_encode(['row' => $row, 'last_id' => $id]);
 		);
 		expect(miss.status).toBe(200);
 		expect(await miss.text()).toBe("from assets");
+	}, 30000);
+});
+
+// ----------------------------------------------------------------------
+// Session handlers
+// ----------------------------------------------------------------------
+
+/** Build a minimal in-process D1 that handles just enough SQL for the
+ *  workers-php session handler: CREATE TABLE IF NOT EXISTS, INSERT … ON
+ *  CONFLICT UPDATE, SELECT … WHERE id = ? AND expires > ?, DELETE … */
+const makeSessionD1 = () => {
+	type Row = {id: string; data: string; expires: number};
+	const store = new Map<string, Row>();
+	let tableCreated = false;
+
+	const matchSelect = (sql: string) =>
+		/^SELECT\s+(?:data|1\s+AS\s+x)\s+FROM\s+"([^"]+)"\s+WHERE\s+id\s*=\s*\?\s+AND\s+expires\s*>\s*\?/i
+			.test(sql);
+	const matchUpsert = (sql: string) =>
+		/^INSERT\s+INTO\s+"([^"]+)"\s*\(id,\s*data,\s*expires\)\s+VALUES\s*\(\?\s*,\s*\?\s*,\s*\?\s*\)\s+ON\s+CONFLICT\(id\)\s+DO\s+UPDATE/i
+			.test(sql);
+	const matchDelete = (sql: string) =>
+		/^DELETE\s+FROM\s+"([^"]+)"\s+WHERE\s+id\s*=\s*\?/i.test(sql);
+	const matchGc = (sql: string) =>
+		/^DELETE\s+FROM\s+"([^"]+)"\s+WHERE\s+expires\s*<\s*\?/i.test(sql);
+
+	return {
+		_store: store,
+		prepare(sql: string) {
+			let bound: unknown[] = [];
+			const stmt = {
+				bind(...v: unknown[]) {
+					bound = v;
+					return stmt;
+				},
+				async all() {
+					if (matchSelect(sql)) {
+						const [id, now] = bound as [string, number];
+						const row = store.get(id);
+						const ok = row && row.expires > now;
+						return {results: ok ? [row] : [], success: true, meta: {}};
+					}
+					return {results: [], success: true, meta: {}};
+				},
+				async first() {
+					if (matchSelect(sql)) {
+						const [id, now] = bound as [string, number];
+						const row = store.get(id);
+						const ok = row && row.expires > now;
+						return ok ? {data: row.data, x: 1} : null;
+					}
+					return null;
+				},
+				async run() {
+					if (matchUpsert(sql)) {
+						const [id, data, expires] = bound as [string, string, number];
+						store.set(id, {id, data, expires});
+						return {results: [], success: true, meta: {changes: 1}};
+					}
+					if (matchDelete(sql)) {
+						const [id] = bound as [string];
+						const had = store.delete(id);
+						return {results: [], success: true, meta: {changes: had ? 1 : 0}};
+					}
+					if (matchGc(sql)) {
+						const [now] = bound as [number];
+						let n = 0;
+						for (const [k, v] of store) {
+							if (v.expires < now) {
+								store.delete(k);
+								n++;
+							}
+						}
+						return {results: [], success: true, meta: {changes: n}};
+					}
+					return {results: [], success: true, meta: {changes: 0}};
+				},
+				async raw() {
+					return [];
+				},
+			};
+			return stmt;
+		},
+		async batch(_stmts: unknown[]) {
+			return [];
+		},
+		async exec(sql: string) {
+			if (/CREATE TABLE IF NOT EXISTS/i.test(sql)) {
+				tableCreated = true;
+			}
+			void tableCreated;
+			return {count: 1, duration: 0};
+		},
+	};
+};
+
+describe("session handlers", () => {
+	const sessionPhp = `<?php
+header('Content-Type: application/json');
+
+session_start();
+$out = ['session_id' => session_id()];
+if (isset($_GET['set'])) {
+    $_SESSION['greeting'] = $_GET['set'];
+    $out['set'] = $_SESSION['greeting'];
+} else {
+    $out['read'] = $_SESSION['greeting'] ?? '(missing)';
+}
+echo json_encode($out);
+`;
+
+	const newCtx = () => ({
+		waitUntil: () => {},
+		passThroughOnException: () => {},
+	}) as unknown as ExecutionContext;
+
+	it("D1 sessions round-trip across two requests with the same cookie", async () => {
+		const tar = buildTar([
+			{name: "app/", type: "dir"},
+			{name: "app/index.php", data: sessionPhp},
+		]);
+		const env = {
+			ASSETS: makeMockAssets(new Uint8Array(gzipSync(tar))),
+			DB: makeSessionD1(),
+		};
+		const handler = createPhpHandler({
+			appRoot: "/persist/sessions-d1",
+			docroot: ".",
+			entrypoint: "index.php",
+			bindings: {DB: "d1"},
+			sessionHandler: {backend: "d1", from: "DB", strictMode: false},
+		});
+
+		// Request 1: set $_SESSION['greeting'] = 'hello'.
+		const res1 = await handler(
+			new Request("https://example.com/?set=hello"),
+			env,
+			newCtx(),
+		);
+		expect(res1.status).toBe(200);
+		const setCookie = res1.headers.get("set-cookie") ?? "";
+		expect(setCookie).toMatch(/PHPSESSID=[a-zA-Z0-9]+/);
+		const sid = setCookie.match(/PHPSESSID=([a-zA-Z0-9]+)/)?.[1] ?? "";
+		const body1 = (await res1.json()) as {session_id: string; set: string};
+		expect(body1.set).toBe("hello");
+		expect(body1.session_id).toBe(sid);
+
+		// Verify D1 has the session row.
+		const row = env.DB._store.get(sid);
+		expect(row).toBeDefined();
+		expect(row!.data).toContain("greeting");
+		expect(row!.data).toContain("hello");
+
+		// Request 2: read $_SESSION['greeting'] back via the same cookie.
+		const res2 = await handler(
+			new Request("https://example.com/", {
+				headers: {cookie: `PHPSESSID=${sid}`},
+			}),
+			env,
+			newCtx(),
+		);
+		expect(res2.status).toBe(200);
+		const body2 = (await res2.json()) as {session_id: string; read: string};
+		expect(body2.session_id).toBe(sid);
+		expect(body2.read).toBe("hello");
+	}, 30000);
+
+	it("KV sessions round-trip across two requests with the same cookie", async () => {
+		const tar = buildTar([
+			{name: "app/", type: "dir"},
+			{name: "app/index.php", data: sessionPhp},
+		]);
+		const env = {
+			ASSETS: makeMockAssets(new Uint8Array(gzipSync(tar))),
+			KV: makeMockKV(),
+		};
+		const handler = createPhpHandler({
+			appRoot: "/persist/sessions-kv",
+			docroot: ".",
+			entrypoint: "index.php",
+			bindings: {KV: "kv"},
+			sessionHandler: {backend: "kv", from: "KV", strictMode: false},
+		});
+
+		const res1 = await handler(
+			new Request("https://example.com/?set=world"),
+			env,
+			newCtx(),
+		);
+		expect(res1.status).toBe(200);
+		const setCookie = res1.headers.get("set-cookie") ?? "";
+		const sid = setCookie.match(/PHPSESSID=([a-zA-Z0-9]+)/)?.[1] ?? "";
+		expect(sid).not.toBe("");
+
+		const res2 = await handler(
+			new Request("https://example.com/", {
+				headers: {cookie: `PHPSESSID=${sid}`},
+			}),
+			env,
+			newCtx(),
+		);
+		const body2 = (await res2.json()) as {read: string};
+		expect(body2.read).toBe("world");
+	}, 30000);
+
+	it("expired sessions read as empty (ttlSeconds=0 effectively expires immediately)", async () => {
+		const expirePhp = `<?php
+header('Content-Type: text/plain');
+session_start();
+echo isset($_SESSION['greeting']) ? "found:" . $_SESSION['greeting'] : "(empty)";
+$_SESSION['greeting'] = 'should-not-persist';
+`;
+		const tar = buildTar([
+			{name: "app/", type: "dir"},
+			{name: "app/index.php", data: expirePhp},
+		]);
+		const env = {
+			ASSETS: makeMockAssets(new Uint8Array(gzipSync(tar))),
+			DB: makeSessionD1(),
+		};
+		const handler = createPhpHandler({
+			appRoot: "/persist/sessions-expire",
+			docroot: ".",
+			entrypoint: "index.php",
+			bindings: {DB: "d1"},
+			sessionHandler: {backend: "d1", from: "DB", ttlSeconds: 0, strictMode: false},
+		});
+
+		// Request 1: writes session with ttl=0 (expires "now").
+		const res1 = await handler(new Request("https://example.com/"), env, newCtx());
+		const setCookie = res1.headers.get("set-cookie") ?? "";
+		const sid = setCookie.match(/PHPSESSID=([a-zA-Z0-9]+)/)?.[1] ?? "";
+		expect(await res1.text()).toBe("(empty)");
+
+		// Request 2: row exists but expires (which equals "now") is no
+		// longer "> now", so read() returns empty.
+		const res2 = await handler(
+			new Request("https://example.com/", {
+				headers: {cookie: `PHPSESSID=${sid}`},
+			}),
+			env,
+			newCtx(),
+		);
+		// session may have generated a new id (because the old row is
+		// effectively expired) — either way, no greeting should leak.
+		expect(await res2.text()).toBe("(empty)");
 	}, 30000);
 });

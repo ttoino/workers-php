@@ -11,6 +11,7 @@ export type {
 	BindingKind,
 	BindingDeclarations,
 	StaticRoute,
+	SessionHandlerConfig,
 } from "./runtime/handler";
 
 // Lower-level building blocks. Most users won't need these; expose them

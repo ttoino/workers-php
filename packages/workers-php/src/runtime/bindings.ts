@@ -6,6 +6,13 @@
 import type {BindingDeclarations} from "./handler";
 import type {BridgeMethods} from "./bridge";
 
+/**
+ * Per-isolate cache of `<binding>:<table>` pairs we've already
+ * `CREATE TABLE IF NOT EXISTS`-ed. Keeps the session-handler's first-
+ * use schema setup from costing a D1 round-trip on every request.
+ */
+const ensuredSessionTables = new Set<string>();
+
 // Minimal duck-types for the bindings we touch. We avoid `D1Database` /
 // `R2Bucket` / `KVNamespace` imports so the library compiles even when
 // workers-types isn't installed in the consuming project.
@@ -149,6 +156,30 @@ export const makeBindingDispatch = (
 		out.d1_exec = async (binding: string, sql: string) => {
 			return await d1(binding).exec(sql);
 		};
+		/**
+		 * Create the workers-php sessions table on first use. Subsequent
+		 * calls in the same isolate are no-ops thanks to the
+		 * `ensuredSessionTables` cache. Idempotent on the DB side via
+		 * `IF NOT EXISTS`.
+		 */
+		out.d1_ensure_sessions_table = async (binding: string, table: string) => {
+			const cacheKey = `${binding}:${table}`;
+			if (ensuredSessionTables.has(cacheKey)) return null;
+			// D1's exec() runs a single statement at a time in some
+			// versions. Split into two calls to stay portable.
+			await d1(binding).exec(
+				`CREATE TABLE IF NOT EXISTS "${table}" (` +
+				` id TEXT PRIMARY KEY,` +
+				` data BLOB NOT NULL,` +
+				` expires INTEGER NOT NULL` +
+				`)`,
+			);
+			await d1(binding).exec(
+				`CREATE INDEX IF NOT EXISTS "idx_${table}_expires" ON "${table}"(expires)`,
+			);
+			ensuredSessionTables.add(cacheKey);
+			return null;
+		};
 		out.d1_batch = async (binding: string, statements: Array<{sql: string; params: unknown[]}>) => {
 			const stmts = statements.map((s) => {
 				let st = d1(binding).prepare(s.sql);
@@ -252,4 +283,71 @@ export const buildEnvDeclaration = (
 		}
 	}
 	return `$env = new \\WorkersPHP\\Env([${parts.join(", ")}]);\n`;
+};
+
+/**
+ * Configuration accepted by `buildSessionDeclaration`. Identical shape to
+ * the `SessionHandlerConfig` exported from handler.ts — duplicated here
+ * to avoid a circular import.
+ */
+export interface SessionDeclarationConfig {
+	backend: "d1" | "kv";
+	from: string;
+	table?: string;
+	keyPrefix?: string;
+	ttlSeconds?: number;
+	strictMode?: boolean;
+}
+
+/**
+ * Build the PHP source that registers the session save handler. Emitted
+ * by `buildPrelude` after `$env`; runs before any user-side
+ * `session_start()`.
+ */
+export const buildSessionDeclaration = (
+	bindings: BindingDeclarations,
+	cfg: SessionDeclarationConfig,
+): string => {
+	const phpQuote = (s: string): string =>
+		"'" + s.replace(/\\/g, "\\\\").replace(/'/g, "\\'") + "'";
+
+	const kind = bindings[cfg.from];
+	if (!kind) {
+		throw new Error(
+			`workers-php: sessionHandler.from='${cfg.from}' does not match any declared binding`,
+		);
+	}
+	if (cfg.backend === "d1" && kind !== "d1") {
+		throw new Error(
+			`workers-php: sessionHandler.backend='d1' requires bindings['${cfg.from}']='d1' (got '${kind}')`,
+		);
+	}
+	if (cfg.backend === "kv" && kind !== "kv") {
+		throw new Error(
+			`workers-php: sessionHandler.backend='kv' requires bindings['${cfg.from}']='kv' (got '${kind}')`,
+		);
+	}
+
+	const ttl = cfg.ttlSeconds ?? 86400;
+	const strictMode = cfg.strictMode ?? true;
+	const strictLine = strictMode
+		? `ini_set('session.use_strict_mode', '1');\n`
+		: "";
+
+	if (cfg.backend === "d1") {
+		const table = cfg.table ?? "workers_php_sessions";
+		return (
+			`workers_php_call('d1_ensure_sessions_table', [${phpQuote(cfg.from)}, ${phpQuote(table)}]);\n` +
+			`$__sessionHandler = new \\WorkersPHP\\SessionHandlerD1($env->${cfg.from}, ${phpQuote(table)}, ${ttl});\n` +
+			`session_set_save_handler($__sessionHandler, true);\n` +
+			strictLine
+		);
+	}
+	// KV
+	const prefix = cfg.keyPrefix ?? "sess:";
+	return (
+		`$__sessionHandler = new \\WorkersPHP\\SessionHandlerKV($env->${cfg.from}, ${phpQuote(prefix)}, ${ttl});\n` +
+		`session_set_save_handler($__sessionHandler, true);\n` +
+		strictLine
+	);
 };

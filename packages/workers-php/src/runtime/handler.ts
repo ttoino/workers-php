@@ -4,7 +4,7 @@
 // project's entrypoint.
 
 import {PhpWeb} from "../wasm/PhpWeb.mjs";
-import {buildEnvDeclaration, makeBindingDispatch} from "./bindings";
+import {buildEnvDeclaration, buildSessionDeclaration, makeBindingDispatch} from "./bindings";
 import {setBridgeMethods, type BridgeMethods} from "./bridge";
 import {BodyTooLargeError, buildPrelude, buildShutdown, parseOutput, phpQuoteString} from "./cgi";
 import {ensureMounted, RUNTIME_LIBRARY_PATH} from "./mount";
@@ -25,6 +25,39 @@ export interface StaticRoute {
 	pathPrefix: string;
 	from: string;
 	fallbackToAssets?: boolean;
+	/**
+	 * On R2 miss, rewrite the request path before falling back to ASSETS.
+	 * Useful for serving a stable placeholder (e.g. {id}.webp → default.svg)
+	 * from ASSETS when the bucket has no object yet. Return null/undefined
+	 * to skip the rewrite (default behaviour: try ASSETS with the original
+	 * path).
+	 */
+	missRewrite?: (pathname: string) => string | null | undefined;
+}
+
+/**
+ * Make PHP `$_SESSION` persist beyond a single isolate by writing through
+ * a Cloudflare binding instead of the default file-backed handler in
+ * `/tmp` MEMFS. The library auto-registers the chosen handler via
+ * `session_set_save_handler($handler, true)` in the prelude — your PHP
+ * code keeps calling `session_start()` exactly as before.
+ */
+export interface SessionHandlerConfig {
+	/** Which backend persists the session blob. */
+	backend: "d1" | "kv";
+	/** Binding name (must match `bindings: { … }`). */
+	from: string;
+	/** D1 only: table name. Default `"workers_php_sessions"`. The table
+	 *  is auto-created on first use. */
+	table?: string;
+	/** KV only: key prefix. Default `"sess:"`. */
+	keyPrefix?: string;
+	/** Session expiry in seconds. Default `86400` (24 h). */
+	ttlSeconds?: number;
+	/** Set `ini_set('session.use_strict_mode', '1')` so cookies with
+	 *  unknown ids force a fresh one. Default `true`. Mitigates session
+	 *  fixation. */
+	strictMode?: boolean;
 }
 
 const INPUT_TMP_PATH = "/tmp/workers-php-input";
@@ -108,6 +141,12 @@ export interface PhpHandlerOptions {
 	 *  by key (URL path minus the leading slash). */
 	staticRoutes?: readonly StaticRoute[];
 
+	/** Persist `$_SESSION` to a Cloudflare binding (D1 or KV) so sessions
+	 *  survive isolate recycles. When set, the library calls
+	 *  `session_set_save_handler(…, true)` in the prelude — your PHP
+	 *  `session_start()` calls keep working unchanged. */
+	sessionHandler?: SessionHandlerConfig;
+
 	/** Optional log hook. Default: console.warn for stderr only. */
 	onLog?: (level: "stdout" | "stderr" | "mount", text: string) => void;
 }
@@ -131,6 +170,7 @@ interface ResolvedOptions {
 		| undefined;
 	bindings: BindingDeclarations;
 	staticRoutes: readonly StaticRoute[];
+	sessionHandler: SessionHandlerConfig | undefined;
 	onLog: (level: "stdout" | "stderr" | "mount", text: string) => void;
 }
 
@@ -154,6 +194,7 @@ const resolveOptions = (o: PhpHandlerOptions = {}): ResolvedOptions => {
 		bridgeMethodsForRequest: o.bridgeMethodsForRequest,
 		bindings: o.bindings ?? {},
 		staticRoutes: o.staticRoutes ?? [],
+		sessionHandler: o.sessionHandler,
 		onLog:
 			o.onLog ??
 			((level, text) => {
@@ -239,6 +280,9 @@ const runPhp = async (
 				envDeclaration: Object.keys(options.bindings).length
 					? buildEnvDeclaration(env, options.bindings)
 					: "",
+				sessionDeclaration: options.sessionHandler
+					? buildSessionDeclaration(options.bindings, options.sessionHandler)
+					: "",
 			});
 		} catch (e) {
 			if (e instanceof BodyTooLargeError) {
@@ -276,6 +320,13 @@ const runPhp = async (
 
 		// The shutdown function is registered FIRST so output framing also
 		// survives `exit`/`die` in user code.
+		//
+		// We also explicitly call session_write_close() before returning,
+		// because pib_run() in our embed SAPI doesn't trigger
+		// php_request_shutdown() — that only happens when pib_refresh()
+		// runs at the START of the next request. Without this, session
+		// writes via session_set_save_handler don't happen until the next
+		// request, which breaks read-after-write within the same isolate.
 		const code =
 			prelude.phpSource +
 			buildShutdown() +
@@ -287,6 +338,9 @@ try {
     while (ob_get_level() > 1) ob_end_clean();
     http_response_code(500);
     echo "<pre>workers-php: uncaught PHP error\\n", htmlspecialchars((string)$__e), "</pre>";
+}
+if (\\function_exists('session_status') && \\session_status() === PHP_SESSION_ACTIVE) {
+    \\session_write_close();
 }
 `;
 
@@ -348,7 +402,9 @@ export const createPhpHandler = (
 
 			// Static-route override: lookup in a specific R2 binding before
 			// touching ASSETS or PHP. Misses fall through to the ASSETS
-			// short-circuit, then to PHP.
+			// short-circuit, then to PHP. If `missRewrite` is provided, the
+			// path is rewritten before ASSETS fallback (useful for serving
+			// a default placeholder image when the bucket has no upload).
 			for (const route of opts.staticRoutes) {
 				if (url.pathname.startsWith(route.pathPrefix)) {
 					const r2 = envMap?.[route.from] as
@@ -367,6 +423,15 @@ export const createPhpHandler = (
 						}
 						if (route.fallbackToAssets === false) {
 							return new Response("Not Found", {status: 404});
+						}
+						// Optional miss-rewrite before falling back to ASSETS.
+						if (route.missRewrite) {
+							const rewritten = route.missRewrite(url.pathname);
+							if (rewritten && rewritten !== url.pathname) {
+								const rewrittenUrl = new URL(url);
+								rewrittenUrl.pathname = rewritten;
+								return assets.fetch(new Request(rewrittenUrl, request));
+							}
 						}
 					}
 					break; // only the first matching route is consulted
