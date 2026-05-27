@@ -174,3 +174,10 @@ dist/
 
 # Local Laravel experiment scratch dir (not part of the library or demo)
 laravel/
+
+# xaufome / ttoino/feup-ltw-proj deployment recipe:
+# the project is cloned-in, build/build-feup.sh overlays a router and
+# builds main.db, then `workers-php build` writes dist-feup/. Tracked
+# files live under build/feup/, src/feup-index.ts, wrangler.feup.jsonc.
+feup-ltw-proj/
+dist-feup/

@@ -1,0 +1,32 @@
+/**
+ * Wrangler config for the xaufome / feup-ltw-proj deployment.
+ *
+ * Use with: `npm run dev:feup` or `npm run deploy:feup`. The base
+ * wrangler.jsonc (without `.feup`) still drives the small built-in demo
+ * Worker; both share the same workers-php library but bundle different
+ * PHP projects.
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "xaufome",
+	"main": "src/feup-index.ts",
+	"compatibility_date": "2026-05-26",
+	"observability": {
+		"enabled": true
+	},
+	"upload_source_maps": true,
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	// The xaufome PHP project gets bundled into ./dist-feup/app.tar.gz by
+	// `npm run build-feup`. The runtime fetches it on first request via
+	// env.ASSETS and mounts it into the in-process PHP FS. Static files
+	// (CSS/JS/images/etc.) are short-circuited to ASSETS by the handler
+	// before reaching the router; `run_worker_first` is required so PHP
+	// routing wins over Wrangler's built-in static matcher.
+	"assets": {
+		"directory": "./dist-feup",
+		"binding": "ASSETS",
+		"run_worker_first": true
+	}
+}
