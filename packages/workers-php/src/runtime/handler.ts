@@ -4,7 +4,7 @@
 // project's entrypoint.
 
 import {PhpWeb} from "../wasm/PhpWeb.mjs";
-import {buildEpilogue, buildPrelude, parseOutput, phpQuoteString} from "./cgi";
+import {buildPrelude, buildShutdown, parseOutput, phpQuoteString} from "./cgi";
 import {ensureMounted} from "./mount";
 import {getPhp, withPhpLock} from "./php-instance";
 import {DEFAULT_STATIC_EXTENSIONS, isStaticRequest} from "./static";
@@ -50,6 +50,16 @@ export interface PhpHandlerOptions {
 	 *  also `putenv()`-injected each request. Use for Worker-side secrets/vars. */
 	envOverrides?: Record<string, string>;
 
+	/** Set PHP's `display_errors` ini for each request. Default `true` — good
+	 *  for development, but PHP warnings/notices leak into HTML response
+	 *  bodies. Set to `false` for production. */
+	displayErrors?: boolean;
+
+	/** Raw PHP expression passed to `error_reporting(...)`. Default
+	 *  `"E_ALL"`. Use e.g. `"E_ERROR | E_PARSE"` to silence notices,
+	 *  warnings and deprecations. */
+	errorReporting?: string;
+
 	/** Optional log hook. Default: console.warn for stderr only. */
 	onLog?: (level: "stdout" | "stderr" | "mount", text: string) => void;
 }
@@ -64,6 +74,8 @@ interface ResolvedOptions {
 	staticExtensions: readonly string[];
 	disableStaticShortCircuit: boolean;
 	envOverrides: Record<string, string>;
+	displayErrors: boolean;
+	errorReporting: string;
 	onLog: (level: "stdout" | "stderr" | "mount", text: string) => void;
 }
 
@@ -80,6 +92,8 @@ const resolveOptions = (o: PhpHandlerOptions = {}): ResolvedOptions => {
 		staticExtensions: [...exts],
 		disableStaticShortCircuit: o.disableStaticShortCircuit ?? false,
 		envOverrides: o.envOverrides ?? {},
+		displayErrors: o.displayErrors ?? true,
+		errorReporting: o.errorReporting ?? "E_ALL",
 		onLog:
 			o.onLog ??
 			((level, text) => {
@@ -144,13 +158,20 @@ const runPhp = async (
 			requestUri: url.pathname + url.search,
 			documentRoot,
 			envOverrides: options.envOverrides,
+			displayErrors: options.displayErrors,
+			errorReporting: options.errorReporting,
 		});
 
+		// The shutdown function is registered FIRST so output framing also
+		// survives `exit`/`die` in user code (which would skip any code
+		// after the require). It opens its own ob_start() so we can
+		// collect all output, including content written from inside
+		// shutdown handlers registered by the user script.
 		const code =
 			prelude +
+			buildShutdown() +
 			`
 chdir(${phpQuoteString(documentRoot)});
-ob_start();
 try {
     require ${phpQuoteString(scriptFilename)};
 } catch (\\Throwable $__e) {
@@ -158,8 +179,7 @@ try {
     http_response_code(500);
     echo "<pre>workers-php: uncaught PHP error\\n", htmlspecialchars((string)$__e), "</pre>";
 }
-?>` +
-			buildEpilogue();
+`;
 
 		await php.run(code);
 		php.flush();

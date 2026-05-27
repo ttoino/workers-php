@@ -43,6 +43,18 @@ export interface PreludeOptions {
 	requestUri?: string;
 	documentRoot?: string;
 	envOverrides?: Record<string, string>;
+	/**
+	 * Whether to set `display_errors=1` in the prelude. Default `true`.
+	 * Set to `false` for production-style deployments where you don't want
+	 * PHP warnings/notices leaking into HTML response bodies.
+	 */
+	displayErrors?: boolean;
+	/**
+	 * Raw PHP expression assigned to `error_reporting(...)`. Default
+	 * `"E_ALL"`. Common alternatives: `"E_ERROR | E_PARSE"` (silence
+	 * notices/warnings/deprecations), `"0"` (silence everything).
+	 */
+	errorReporting?: string;
 }
 
 /**
@@ -108,6 +120,9 @@ export const buildPrelude = async (
 		}
 	}
 
+	const displayErrors = opts.displayErrors ?? true;
+	const errorReporting = opts.errorReporting ?? "E_ALL";
+
 	// No closing `?>` — anything after that would become output and trigger
 	// "headers already sent" errors on later header() calls in user code.
 	return `<?php
@@ -116,8 +131,8 @@ $_GET = ${phpArrayLiteral(get)};
 $_POST = ${phpArrayLiteral(post)};
 $_COOKIE = ${phpArrayLiteral(cookies)};
 $_REQUEST = array_merge($_GET, $_POST, $_COOKIE);
-${putEnvLines}ini_set('display_errors', '1');
-error_reporting(E_ALL);`;
+${putEnvLines}ini_set('display_errors', ${phpQuoteString(displayErrors ? "1" : "0")});
+error_reporting(${errorReporting});`;
 };
 
 export interface CapturedOutput {
@@ -127,19 +142,32 @@ export interface CapturedOutput {
 }
 
 /**
- * Extract the CGI-style "Header: value\r\n...\r\n\r\nBODY" block (if any)
+ * Extract the CGI-style "Header: value\r\n...\r\n\r\nBODY" block(s)
  * from captured stdout and produce headers/status/body for the Response.
+ *
+ * Why multiple blocks may appear: the embed SAPI in our php-wasm build
+ * sometimes emits its own header block via `sapi_send_headers()` at the
+ * end of a request (in addition to the one our ob_start callback writes
+ * via `buildShutdown`). The duplicate is identical, so we just consume
+ * every leading CGI block we find and let the last one win.
  */
 export const parseOutput = (stdout: string): CapturedOutput => {
 	const headers = new Headers();
 	let status = 200;
 
 	const cgiHeaderBlock = /^(?:[A-Za-z0-9!#$%&'*+\-.^_`|~]+:[^\n]*\r?\n)+\r?\n/;
-	const match = stdout.match(cgiHeaderBlock);
-	if (match) {
-		const headerBlock = match[0];
-		const body = stdout.slice(headerBlock.length);
-		for (const line of headerBlock.trimEnd().split(/\r?\n/)) {
+	let remaining = stdout;
+	let matched = false;
+	// Consume every leading CGI block. The first iteration handles the
+	// expected case; further iterations cope with the SAPI's duplicate.
+	// Cap the loop to avoid pathological inputs.
+	for (let i = 0; i < 4; i++) {
+		const match = remaining.match(cgiHeaderBlock);
+		if (!match) break;
+		matched = true;
+		// Reset headers; later block wins.
+		for (const k of [...headers.keys()]) headers.delete(k);
+		for (const line of match[0].trimEnd().split(/\r?\n/)) {
 			const idx = line.indexOf(":");
 			if (idx <= 0) continue;
 			const name = line.slice(0, idx).trim();
@@ -151,16 +179,41 @@ export const parseOutput = (stdout: string): CapturedOutput => {
 			}
 			headers.append(name, value);
 		}
-		return {body, headers, status};
+		remaining = remaining.slice(match[0].length);
 	}
 
-	return {body: stdout, headers, status};
+	return matched ? {body: remaining, headers, status} : {body: stdout, headers, status};
 };
 
 /**
- * PHP source that captures the entrypoint's output and emits a CGI-style
- * header block + body that `parseOutput` understands. Wraps execution in
- * a try/catch so PHP exceptions don't break the output framing.
+ * PHP source that wraps the entrypoint in an output-buffer callback so
+ * the response framing (Status + headers + body) survives every script
+ * termination path: normal return, throw, and exit/die.
+ *
+ * The callback receives the entire buffered body and returns the
+ * fully-framed CGI block, which PHP then emits as the actual stdout.
+ * Crucially, ob_start callbacks fire **after** all shutdown functions,
+ * meaning `session_write_close` has already run and `headers_list()`
+ * includes the `Set-Cookie: PHPSESSID=...` header.
+ *
+ * `chunk_size = 0` and the absence of `PHP_OUTPUT_HANDLER_FLUSHABLE`
+ * means the callback only fires when the buffer is finally flushed at
+ * shutdown — not on every interim `flush()` the user code might call.
+ */
+export const buildShutdown = (): string => `
+ob_start(function ($__body) {
+    $__out = '';
+    $__status = http_response_code();
+    if (is_int($__status)) $__out .= "Status: $__status\\r\\n";
+    foreach (headers_list() as $__h) $__out .= $__h . "\\r\\n";
+    $__out .= "\\r\\n" . $__body;
+    return $__out;
+});
+`;
+
+/**
+ * @deprecated kept for backwards compatibility; prefer buildShutdown() at
+ * the top of the script so output framing survives exit/die.
  */
 export const buildEpilogue = (): string => `<?php
 $__body = ob_get_clean();

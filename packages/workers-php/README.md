@@ -12,8 +12,9 @@ Cloudflare Workers runtime (which forbids runtime WebAssembly compilation).
 ## Status
 
 - **PHP 8.5.2** runtime.
-- **Workers Paid plan only.** The PHP wasm itself is ~8.7 MB gzipped,
-  which exceeds the free plan's 3 MB Worker cap. (The PHP project files
+- **Workers Paid plan only.** The PHP wasm itself is ~9.5 MB gzipped,
+  which exceeds the free plan's 3 MB Worker cap and leaves a tight
+  ~260 KB headroom under the Paid 10 MB cap. (The PHP project files
   don't contribute — they're served as ASSETS, which is free.)
 - Single-tarball mount mode. Per-file lazy mount is on the roadmap.
 - Tested with Laravel 13 and basic vanilla PHP. Should work for any PHP
@@ -112,6 +113,8 @@ Returns a Worker fetch handler `(request, env, ctx) => Response`.
 | `extraStaticExtensions` | `[]` | Add extensions on top of the defaults. |
 | `disableStaticShortCircuit` | `false` | Send every request to PHP. |
 | `envOverrides` | `{}` | `.env` keys written to `<appRoot>/.env` and `putenv()`-injected per request. |
+| `displayErrors` | `true` | PHP `display_errors` ini per request. Set `false` for production so warnings/notices don't leak into HTML. |
+| `errorReporting` | `"E_ALL"` | Raw expression for `error_reporting(...)`. Use e.g. `"E_ERROR \| E_PARSE"` to silence everything below errors. |
 | `onLog` | `console.warn`-stderr | `(level, text) => void` for runtime telemetry. |
 
 Default static extensions (forwarded straight to `env.ASSETS.fetch()`
@@ -193,7 +196,7 @@ If you need to drive PHP yourself, the package also exports:
 
 ## Limitations
 
-- **Workers Free plan is unsupported.** The PHP wasm alone is ~8.7 MB
+- **Workers Free plan is unsupported.** The PHP wasm alone is ~9.5 MB
   gz, exceeding the free plan's 3 MB Worker bundle cap.
 - **Persistent storage.** The wasm filesystem is RAM-only and is discarded
   when the isolate is reclaimed. SQLite/file writes work between requests
@@ -212,15 +215,15 @@ If you need to drive PHP yourself, the package also exports:
 - **Memory.** Workers' 128 MB isolate cap. The mounted tar plus the wasm
   heap means projects up to ~50 MB unpacked are comfortable; larger may OOM.
 - **Compiled-in PHP extensions** (as of the bundled wasm):
-  bcmath, calendar, ctype, date, dom, exif, fileinfo, filter, hash,
+  bcmath, calendar, ctype, date, dom, exif, fileinfo, filter, gd, hash,
   iconv, json, libxml, openssl, pcre, pdo, pdo_sqlite, phar, random,
   reflection, session, simplexml, spl, sqlite3, standard, tidy,
   tokenizer, xml, xmlreader, xmlwriter, yaml, zip, zlib.
 - **Missing extensions:** `mbstring` (Laravel falls back to the
-  `symfony/polyfill-mbstring` shim it ships with), `curl`, `intl`,
-  `gd` (image generation; dropped to keep the bundle under the 10 MB
-  Worker cap). Re-enable any of them by editing `build/php-wasm.env`
-  and rebuilding.
+  `symfony/polyfill-mbstring` shim it ships with), `curl`, `intl`.
+  Re-enable by editing `build/php-wasm.env` and rebuilding. Disabling
+  GD + image libs (`WITH_GD=0`, etc.) frees ~1.7 MB raw / ~250 KB gzip
+  if you don't need server-side image manipulation.
 
 ## Future work
 
