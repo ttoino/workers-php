@@ -28,5 +28,9 @@
 		"directory": "./dist-feup",
 		"binding": "ASSETS",
 		"run_worker_first": true
-	}
+	},
+	// The workers-php library imports .php helper files as string modules.
+	"rules": [
+		{ "type": "Text", "globs": ["**/*.php"], "fallthrough": true }
+	]
 }

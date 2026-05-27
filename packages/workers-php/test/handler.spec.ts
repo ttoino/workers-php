@@ -165,4 +165,120 @@ describe("createPhpHandler (with mock ASSETS)", () => {
 		expect(res.status).toBe(500);
 		expect(await res.text()).toMatch(/missing ASSETS binding/);
 	});
+
+	it("populates $_FILES and tmp_name from a multipart upload", async () => {
+		const tar = buildTar([
+			{name: "app/", type: "dir"},
+			{
+				name: "app/index.php",
+				data:
+					"<?php\n" +
+					"header('Content-Type: text/plain');\n" +
+					"$f = $_FILES['photo'] ?? null;\n" +
+					"if (!$f) { echo 'NO_FILE'; return; }\n" +
+					"echo 'name=', $f['name'], \"\\n\";\n" +
+					"echo 'type=', $f['type'], \"\\n\";\n" +
+					"echo 'size=', $f['size'], \"\\n\";\n" +
+					"echo 'tmp_exists=', file_exists($f['tmp_name']) ? '1' : '0', \"\\n\";\n" +
+					"echo 'contents=', file_get_contents($f['tmp_name']), \"\\n\";\n" +
+					"echo 'post_caption=', $_POST['caption'] ?? '(none)', \"\\n\";\n",
+			},
+		]);
+		const env2 = {ASSETS: makeMockAssets(new Uint8Array(gzipSync(tar)))};
+
+		const handler = createPhpHandler({
+			appRoot: "/persist/test-files",
+			docroot: ".",
+			entrypoint: "index.php",
+		});
+
+		const boundary = "----WPTBoundary";
+		const enc = new TextEncoder();
+		const lines = [
+			`--${boundary}`,
+			'Content-Disposition: form-data; name="caption"',
+			"",
+			"a tiny test",
+			`--${boundary}`,
+			'Content-Disposition: form-data; name="photo"; filename="hello.txt"',
+			"Content-Type: text/plain",
+			"",
+			"hello world\n", // body
+			`--${boundary}--`,
+			"",
+		];
+		const body = enc.encode(lines.join("\r\n"));
+
+		const req = new Request("https://example.com/", {
+			method: "POST",
+			headers: {"Content-Type": `multipart/form-data; boundary=${boundary}`},
+			body,
+		});
+		const res = await handler(req, env2, {
+			waitUntil: () => {},
+			passThroughOnException: () => {},
+		} as unknown as ExecutionContext);
+
+		expect(res.status).toBe(200);
+		const text = await res.text();
+		expect(text).toContain("name=hello.txt");
+		expect(text).toContain("type=text/plain");
+		expect(text).toMatch(/size=1[12]/); // 11 or 12 depending on trailing newline preservation
+		expect(text).toContain("tmp_exists=1");
+		expect(text).toContain("contents=hello world");
+		expect(text).toContain("post_caption=a tiny test");
+	}, 30000);
+
+	it("exposes raw PUT body via php://input", async () => {
+		const tar = buildTar([
+			{name: "app/", type: "dir"},
+			{
+				name: "app/index.php",
+				data:
+					"<?php\n" +
+					"header('Content-Type: text/plain');\n" +
+					"echo 'method=', $_SERVER['REQUEST_METHOD'], \"\\n\";\n" +
+					"echo 'body=', file_get_contents('php://input'), \"\\n\";\n",
+			},
+		]);
+		const env3 = {ASSETS: makeMockAssets(new Uint8Array(gzipSync(tar)))};
+		const handler = createPhpHandler({
+			appRoot: "/persist/test-put",
+			docroot: ".",
+			entrypoint: "index.php",
+		});
+
+		const req = new Request("https://example.com/api/x", {
+			method: "PUT",
+			headers: {"Content-Type": "application/json"},
+			body: '{"hello":"world","n":42}',
+		});
+		const res = await handler(req, env3, {
+			waitUntil: () => {},
+			passThroughOnException: () => {},
+		} as unknown as ExecutionContext);
+
+		expect(res.status).toBe(200);
+		const text = await res.text();
+		expect(text).toContain("method=PUT");
+		expect(text).toContain('body={"hello":"world","n":42}');
+	}, 30000);
+
+	it("returns 413 when the request body exceeds maxBodyBytes", async () => {
+		const handler = createPhpHandler({
+			appRoot: "/persist/test-large",
+			docroot: ".",
+			entrypoint: "index.php",
+			maxBodyBytes: 16,
+		});
+		const req = new Request("https://example.com/", {
+			method: "POST",
+			body: "this body is definitely longer than sixteen bytes",
+		});
+		const res = await handler(req, env, {
+			waitUntil: () => {},
+			passThroughOnException: () => {},
+		} as unknown as ExecutionContext);
+		expect(res.status).toBe(413);
+	}, 30000);
 });

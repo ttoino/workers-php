@@ -4,10 +4,12 @@
 // project's entrypoint.
 
 import {PhpWeb} from "../wasm/PhpWeb.mjs";
-import {buildPrelude, buildShutdown, parseOutput, phpQuoteString} from "./cgi";
-import {ensureMounted} from "./mount";
-import {getPhp, withPhpLock} from "./php-instance";
+import {BodyTooLargeError, buildPrelude, buildShutdown, parseOutput, phpQuoteString} from "./cgi";
+import {ensureMounted, RUNTIME_LIBRARY_PATH} from "./mount";
+import {ensureDir, getPhp, withPhpLock, type PhpBinary} from "./php-instance";
 import {DEFAULT_STATIC_EXTENSIONS, isStaticRequest} from "./static";
+
+const INPUT_TMP_PATH = "/tmp/workers-php-input";
 
 type OutputEvent = CustomEvent<string[] | string>;
 
@@ -60,6 +62,11 @@ export interface PhpHandlerOptions {
 	 *  warnings and deprecations. */
 	errorReporting?: string;
 
+	/** Maximum request body bytes the handler will buffer. Requests larger
+	 *  than this return 413 Payload Too Large without invoking PHP.
+	 *  Default: 50_000_000 (~50 MB). */
+	maxBodyBytes?: number;
+
 	/** Optional log hook. Default: console.warn for stderr only. */
 	onLog?: (level: "stdout" | "stderr" | "mount", text: string) => void;
 }
@@ -76,6 +83,7 @@ interface ResolvedOptions {
 	envOverrides: Record<string, string>;
 	displayErrors: boolean;
 	errorReporting: string;
+	maxBodyBytes: number;
 	onLog: (level: "stdout" | "stderr" | "mount", text: string) => void;
 }
 
@@ -94,6 +102,7 @@ const resolveOptions = (o: PhpHandlerOptions = {}): ResolvedOptions => {
 		envOverrides: o.envOverrides ?? {},
 		displayErrors: o.displayErrors ?? true,
 		errorReporting: o.errorReporting ?? "E_ALL",
+		maxBodyBytes: o.maxBodyBytes ?? 50_000_000,
 		onLog:
 			o.onLog ??
 			((level, text) => {
@@ -149,26 +158,60 @@ const runPhp = async (
 	const capture = collectOutput(php, options.onLog);
 	capture.start();
 	try {
-		await php.binary;
+		const binary = (await php.binary) as PhpBinary;
 		await php.refresh();
 
-		const prelude = await buildPrelude(request, {
-			scriptFilename,
-			scriptName: "/" + options.entrypoint,
-			requestUri: url.pathname + url.search,
-			documentRoot,
-			envOverrides: options.envOverrides,
-			displayErrors: options.displayErrors,
-			errorReporting: options.errorReporting,
-		});
+		let prelude;
+		try {
+			prelude = await buildPrelude(request, {
+				scriptFilename,
+				scriptName: "/" + options.entrypoint,
+				requestUri: url.pathname + url.search,
+				documentRoot,
+				envOverrides: options.envOverrides,
+				displayErrors: options.displayErrors,
+				errorReporting: options.errorReporting,
+				maxBodyBytes: options.maxBodyBytes,
+				runtimeLibraryPath: RUNTIME_LIBRARY_PATH,
+			});
+		} catch (e) {
+			if (e instanceof BodyTooLargeError) {
+				capture.stop();
+				return new Response(
+					`Request body too large: ${e.received} B exceeds limit ${e.limit} B`,
+					{status: 413, headers: {"Content-Type": "text/plain; charset=utf-8"}},
+				);
+			}
+			throw e;
+		}
+
+		// Stage uploaded multipart files into the wasm FS so PHP can access
+		// `$_FILES[...]['tmp_name']` via `file_get_contents`, `fopen`, etc.
+		const uploadDir = "/tmp";
+		ensureDir(binary.FS, uploadDir);
+		for (const f of prelude.stagedFiles) {
+			try {
+				binary.FS.writeFile(f.path, f.bytes);
+			} catch (err) {
+				options.onLog("stderr", `workers-php: failed to stage ${f.path}: ${(err as Error).message}\n`);
+			}
+		}
+
+		// Write the raw request body to a known path so our userland
+		// php:// stream wrapper (installed by RUNTIME_LIBRARY_PATH) can
+		// surface it via `file_get_contents('php://input')`. Always
+		// (re)write — including a zero-byte file for requests with no
+		// body — so the wrapper sees the current request's bytes.
+		try {
+			binary.FS.writeFile(INPUT_TMP_PATH, prelude.stdinBytes);
+		} catch (err) {
+			options.onLog("stderr", `workers-php: failed to seed php://input: ${(err as Error).message}\n`);
+		}
 
 		// The shutdown function is registered FIRST so output framing also
-		// survives `exit`/`die` in user code (which would skip any code
-		// after the require). It opens its own ob_start() so we can
-		// collect all output, including content written from inside
-		// shutdown handlers registered by the user script.
+		// survives `exit`/`die` in user code.
 		const code =
-			prelude +
+			prelude.phpSource +
 			buildShutdown() +
 			`
 chdir(${phpQuoteString(documentRoot)});
@@ -183,8 +226,20 @@ try {
 
 		await php.run(code);
 		php.flush();
+
+		// Best-effort cleanup of staged tmpfiles. We do this AFTER PHP runs
+		// so the script can still `file_get_contents($tmp_name)` etc.
+		for (const f of prelude.stagedFiles) {
+			try {
+				const fs = binary.FS as {unlink?: (p: string) => void};
+				if (typeof fs.unlink === "function") fs.unlink(f.path);
+			} catch {
+				// Ignore — leave dangling tmpfile, MEMFS will be wiped on
+				// isolate recycle anyway.
+			}
+		}
 	} finally {
-		// Cleanup happens via capture.stop() below; nothing else.
+		// Cleanup happens via capture.stop() below.
 	}
 
 	const {stdout} = capture.stop();

@@ -17,6 +17,7 @@ export interface PhpFS {
 	mkdir: (path: string, mode?: number) => void;
 	writeFile: (path: string, data: string | Uint8Array, opts?: object) => void;
 	readFile?: (path: string, opts?: object) => Uint8Array | string;
+	unlink?: (path: string) => void;
 }
 
 export interface PhpBinary {

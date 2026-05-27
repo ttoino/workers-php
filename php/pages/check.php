@@ -16,3 +16,29 @@ $fns = ['mb_strlen', 'mb_internal_encoding', 'iconv', 'curl_init', 'finfo_open',
 foreach ($fns as $fn) {
     printf("  %-30s %s\n", $fn, function_exists($fn) ? 'OK' : 'MISSING');
 }
+
+echo "\n=== Request body plumbing ===\n";
+$raw = file_get_contents('php://input');
+printf("  %-30s %s\n", 'php://input bytes', strlen($raw));
+printf("  %-30s %s\n", 'request method', $_SERVER['REQUEST_METHOD'] ?? '');
+printf("  %-30s %s\n", '$_POST keys', implode(',', array_keys($_POST)) ?: '(none)');
+printf("  %-30s %s\n", '$_FILES keys', implode(',', array_keys($_FILES)) ?: '(none)');
+foreach ($_FILES as $name => $f) {
+    if (is_array($f['tmp_name'])) {
+        foreach ($f['tmp_name'] as $i => $tmp) {
+            printf("  files[%s][%d]                  name=%s size=%s exists=%s\n",
+                $name, $i, $f['name'][$i], $f['size'][$i],
+                file_exists($tmp) ? 'yes' : 'no');
+        }
+    } else {
+        printf("  files[%s]                     name=%s size=%s exists=%s\n",
+            $name, $f['name'], $f['size'],
+            file_exists($f['tmp_name']) ? 'yes' : 'no');
+    }
+}
+
+echo "\n=== Stream wrappers ===\n";
+foreach (['php://input', 'php://memory', 'php://temp', 'php://stdin'] as $w) {
+    $supported = in_array(parse_url($w, PHP_URL_SCHEME), stream_get_wrappers(), true);
+    printf("  %-30s %s\n", $w, $supported ? 'OK' : 'MISSING');
+}

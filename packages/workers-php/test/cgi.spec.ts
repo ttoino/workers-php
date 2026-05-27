@@ -27,7 +27,7 @@ describe("phpQuoteString", () => {
 describe("buildPrelude", () => {
 	it("emits a $_SERVER array with REQUEST_METHOD/REQUEST_URI", async () => {
 		const req = new Request("https://example.com/foo?bar=1");
-		const src = await buildPrelude(req);
+		const src = (await buildPrelude(req)).phpSource;
 		expect(src).toContain("$_SERVER");
 		expect(src).toContain("'REQUEST_METHOD' => 'GET'");
 		expect(src).toContain("'REQUEST_URI' => '/foo?bar=1'");
@@ -36,7 +36,7 @@ describe("buildPrelude", () => {
 
 	it("seeds $_GET from the URL", async () => {
 		const req = new Request("https://example.com/?name=Workers&n=2");
-		const src = await buildPrelude(req);
+		const src = (await buildPrelude(req)).phpSource;
 		expect(src).toMatch(/\$_GET = \[.*'name' => 'Workers'.*\]/s);
 		expect(src).toMatch(/\$_GET = \[.*'n' => '2'.*\]/s);
 	});
@@ -47,7 +47,7 @@ describe("buildPrelude", () => {
 			headers: {"content-type": "application/x-www-form-urlencoded"},
 			body: "name=POST&val=42",
 		});
-		const src = await buildPrelude(req);
+		const src = (await buildPrelude(req)).phpSource;
 		expect(src).toMatch(/\$_POST = \[.*'name' => 'POST'.*\]/s);
 		expect(src).toMatch(/\$_POST = \[.*'val' => '42'.*\]/s);
 	});
@@ -56,26 +56,26 @@ describe("buildPrelude", () => {
 		const req = new Request("https://example.com/", {
 			headers: {cookie: "session=abc; flag=on"},
 		});
-		const src = await buildPrelude(req);
+		const src = (await buildPrelude(req)).phpSource;
 		expect(src).toMatch(/\$_COOKIE = \[.*'session' => 'abc'.*\]/s);
 		expect(src).toMatch(/\$_COOKIE = \[.*'flag' => 'on'.*\]/s);
 	});
 
 	it("emits putenv() calls for envOverrides", async () => {
 		const req = new Request("https://example.com/");
-		const src = await buildPrelude(req, {
+		const src = (await buildPrelude(req, {
 			envOverrides: {APP_ENV: "production", DEBUG: "0"},
-		});
+		})).phpSource;
 		expect(src).toContain("putenv('APP_ENV=production');");
 		expect(src).toContain("putenv('DEBUG=0');");
 	});
 
 	it("includes SCRIPT_FILENAME when provided", async () => {
 		const req = new Request("https://example.com/");
-		const src = await buildPrelude(req, {
+		const src = (await buildPrelude(req, {
 			scriptFilename: "/persist/app/public/index.php",
 			documentRoot: "/persist/app/public",
-		});
+		})).phpSource;
 		expect(src).toContain(
 			"'SCRIPT_FILENAME' => '/persist/app/public/index.php'",
 		);
@@ -86,13 +86,13 @@ describe("buildPrelude", () => {
 		const req = new Request("https://example.com/", {
 			headers: {"x-custom-header": "value"},
 		});
-		const src = await buildPrelude(req);
+		const src = (await buildPrelude(req)).phpSource;
 		expect(src).toContain("'HTTP_X_CUSTOM_HEADER' => 'value'");
 	});
 
 	it("does not include a closing ?> (would emit unwanted output)", async () => {
 		const req = new Request("https://example.com/");
-		const src = await buildPrelude(req);
+		const src = (await buildPrelude(req)).phpSource;
 		expect(src).not.toContain("?>");
 	});
 });

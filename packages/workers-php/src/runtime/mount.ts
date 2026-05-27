@@ -2,8 +2,16 @@
 // first request, idempotent and cached for the isolate's lifetime.
 
 import {PhpWeb} from "../wasm/PhpWeb.mjs";
+import inputWrapperSource from "../../php/input-wrapper.php";
 import {gunzip, iterTar} from "./tar";
 import {ensureDir, type PhpBinary, type PhpFS} from "./php-instance";
+
+/**
+ * Path inside the wasm FS where we drop the workers-php PHP-side runtime
+ * helpers (php:// wrapper shim today, more on the way). The prelude
+ * `require_once`s this file on every request.
+ */
+export const RUNTIME_LIBRARY_PATH = "/persist/workers-php-runtime.php";
 
 export interface MountOptions {
 	/** Absolute path on the wasm FS where the app should land. */
@@ -128,6 +136,11 @@ export const ensureMounted = (
 		if (opts.envOverrides && Object.keys(opts.envOverrides).length > 0) {
 			writeEnvFile(binary.FS, opts.appRoot, opts.envOverrides);
 		}
+
+		// Install the workers-php PHP-side runtime helpers next to the
+		// mounted app, at a stable path so the prelude can require it.
+		ensureDir(binary.FS, "/persist");
+		binary.FS.writeFile(RUNTIME_LIBRARY_PATH, inputWrapperSource);
 
 		log(
 			`mount: ${files} files, ${dirs} dirs at ${opts.appRoot} in ${Date.now() - t0}ms`,
