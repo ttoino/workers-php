@@ -312,6 +312,26 @@ You can also ship your own handler — instantiate any
 before `session_start()`. The auto-install is only triggered when
 `sessionHandler` is set.
 
+## Recipe: stock Laravel
+
+`examples/laravel/` in this repo runs a stock Laravel 13 app unchanged
+except for config. What makes it fit:
+
+- The handler defaults (`docroot: "public"`, `entrypoint: "index.php"`)
+  are already Laravel's layout; `workers-php build` tars the whole
+  project (vendor included) and PHP reads the whole tree.
+- Vendor is installed at build time (`composer install --no-dev`);
+  the app tarball lands around 5 MB against the 25 MiB per-asset cap.
+- `App\Providers\D1ServiceProvider` registers a custom `d1` database
+  driver: `new \WorkersPHP\D1PDO(binding)` wrapped in Laravel's
+  `SQLiteConnection` (D1 is SQLite), so the query builder and Eloquent
+  work over D1 unmodified.
+- `.env` picks drivers that survive an ephemeral isolate: cookie
+  sessions, array cache, sync queue, errorlog logging. `storage/` is
+  writable but per-isolate.
+- Boot is fresh per request (no opcache); warm requests land in the
+  hundreds of ms, so this needs a Paid plan's CPU budget.
+
 ## How it works
 
 ```

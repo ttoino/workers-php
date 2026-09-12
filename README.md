@@ -35,13 +35,17 @@ build/                        Scripts that compile the PHP wasm artifact from
                               seanmorris/php-wasm. See build/README.md.
 examples/bindings-demo/       Reference PHP app using D1 + R2 + KV + vars
                               through the `$env` superglobal.
+examples/laravel/             Stock Laravel 13 app; D1 via a custom DB
+                              driver over workers-php's D1PDO.
 src/index.ts                  Tiny demo Worker, the original PHP demo.
 src/bindings-index.ts         Worker entrypoint for examples/bindings-demo.
+src/laravel-index.ts          Worker entrypoint for examples/laravel.
 src/feup-index.ts             Worker that deploys ttoino/feup-ltw-proj
                               (xaufome). See "Run the xaufome deployment".
 php/                          PHP project for the basic demo.
 wrangler.jsonc                Basic demo config.
 wrangler.bindings.jsonc       Bindings-demo config (D1 + R2 + KV + var).
+wrangler.laravel.jsonc        Laravel example config (D1 + var).
 wrangler.feup.jsonc           xaufome deployment config.
 ```
 
@@ -86,6 +90,23 @@ Features:
 See [`examples/bindings-demo/README.md`](examples/bindings-demo/README.md)
 and [`packages/workers-php/README.md`](packages/workers-php/README.md)
 for the full bindings API.
+
+## Run the Laravel example
+
+`examples/laravel/` is a stock Laravel 13 app (created with
+`composer create-project laravel/laravel`; vendor is built at build time,
+never committed). It runs on D1 through a small service provider that
+registers Laravel's database layer on top of workers-php's D1PDO.
+
+```bash
+npm run dev:laravel        # composer install (docker) + build + wrangler dev
+# or: npm run deploy:laravel  (after `wrangler d1 create workers-php-laravel-db`,
+#                             pasting its id into wrangler.laravel.jsonc, and
+#                             `npm run laravel:migrate:remote`)
+```
+
+The app tarball is ~5 MB — far under the 25 MiB per-asset limit, so
+app code stays out of the worker bundle entirely.
 
 ## Run the xaufome deployment
 

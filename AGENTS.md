@@ -6,16 +6,18 @@ PHP 8.5 running on Cloudflare Workers, via [seanmorris/php-wasm](https://github.
 - `build/` — wasm build from source: `build-php-wasm.sh` (docker, clones upstream at `pinned-commit.txt`, applies `patches/`, stages artifacts), `promote-wasm.sh`, extension config in `php-wasm.env`, vendored app overlays in `feup/`.
 - `php/` + `src/index.ts` — root demo Worker.
 - `examples/bindings-demo/` — D1/R2/KV bindings demo.
+- `examples/laravel/` — stock Laravel 13 on D1 (custom `d1` driver over D1PDO); vendor via dockerized composer, never committed.
 - `feup-ltw-proj/` — xaufome, cloned by `build-feup.sh` (not committed); deployed via `wrangler.feup.jsonc`.
 
 ## Commands
 
 | Command | Purpose |
 |---------|---------|
-| `npm test` | vitest in **watch mode** — use `npx vitest run` for a one-shot run |
+| `npm test` | vitest in **watch mode** — use `npx vitest run` for a one-shot run. Needs `dist/` and `dist-laravel/app.tar.gz` built first (laravel.spec imports it statically) |
 | `npx tsc --noEmit` | Type-check. Authoritative: editor LSP shows false positives here (`Fetcher`, `ExecutionContext`, C/PHP overlays) |
 | `npm run dev` / `npm run deploy` | Root demo |
 | `npm run dev:bindings` / `npm run deploy:bindings` | Bindings demo |
+| `npm run dev:laravel` / `npm run deploy:laravel` | Laravel example; `npm run laravel:migrate:local` first for dev |
 | `npm run dev:feup` / `npm run deploy:feup` | xaufome deployment |
 | `npm run build-wasm` | Rebuild `php-web.wasm` from source (docker, long); produces `*.staged` |
 | `npm run wasm-promote` | Promote staged wasm artifacts to active, old to `*.legacy` |
