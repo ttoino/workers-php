@@ -1,16 +1,13 @@
 <?php
 /** @var \WorkersPHP\Env $env */
 
-// Fetch recent guestbook entries via the D1 binding.
 $entries = $env->DB->prepare(
     'SELECT id, name, message, created FROM Guestbook ORDER BY id DESC LIMIT 10'
 )->all();
 
-// Bump and read a per-isolate visit counter via KV.
 $count = (int) ($env->KV->get('visits') ?? '0');
 $env->KV->put('visits', (string) ($count + 1));
 
-// List uploaded images from R2 (used in the home gallery).
 $listing = $env->IMAGES->list(['prefix' => 'uploads/', 'limit' => 20]);
 ?>
 <!doctype html>

@@ -1,20 +1,14 @@
 #!/usr/bin/env bash
-# Copy feup-ltw-proj's static assets directly into dist-feup/ so Wrangler's
-# ASSETS binding serves them via env.ASSETS.fetch() without the PHP runtime
-# in the path.
+# Copy feup-ltw-proj's static assets into dist-feup/ for direct ASSETS
+# serving.
 #
-# Why: workers-php's static-extension short-circuit forwards every .css/.js/
-# .png/etc. request straight to env.ASSETS.fetch(request). For that to
-# return real bytes, the file has to live as an ASSET on disk — Wrangler
-# matches by URL path (e.g. /style/index.css → dist-feup/style/index.css).
-# If we only ship app.tar.gz in dist-feup/, all those requests 404.
+# The static short-circuit forwards .css/.js/... requests to
+# env.ASSETS.fetch(), which only finds files that exist on disk; with only
+# app.tar.gz present those requests 404. The same files also live inside
+# the tarball (PHP reads them from the mounted FS), so the duplication is
+# deliberate (~430 KB).
 #
-# The project's CSS/JS/images are also inside app.tar.gz (they're part of
-# the mounted FS so PHP can read them too), so we accept a small amount of
-# duplication. Total static footprint here is ~430 KB.
-#
-# Runs after `workers-php build`. Idempotent — wipes the previous copies
-# first.
+# Runs after `workers-php build`. Idempotent — previous copies are wiped.
 
 set -euo pipefail
 
@@ -34,9 +28,8 @@ ok()   { printf "%s✓%s %s\n" "${C_GREEN}" "${C_RESET}" "$*" >&2; }
 [[ -d "${PROJECT_DIR}" ]] || fail "Missing ${PROJECT_DIR}"
 [[ -d "${DIST_DIR}" ]] || fail "Missing ${DIST_DIR} (run 'workers-php build' first)"
 
-# Directories whose contents are static and addressed by absolute URL.
-# Keep these in sync with the references in templates/common.php and
-# index.php (<link rel=...>, <script src=...>, <img src=...>).
+# Keep in sync with the asset references in templates/common.php and
+# index.php (<link>, <script>, <img>).
 readonly STATIC_DIRS=(style scripts assets)
 
 log "Copying static assets into ${DIST_DIR}/"

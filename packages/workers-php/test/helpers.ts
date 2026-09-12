@@ -1,6 +1,5 @@
 // Shared test helpers: minimal POSIX tar builder + mock ASSETS fetcher.
-// New spec files should import from here; handler.spec.ts keeps its own
-// historical copies (dedupe left as future cleanup).
+// handler.spec.ts predates this file and keeps its own copies.
 
 import {gzipSync} from "node:zlib";
 

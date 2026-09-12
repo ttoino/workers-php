@@ -1,13 +1,12 @@
 <?php
-// workers-php overlay: replace upstream's getDBConnection() so it returns
-// a Cloudflare-D1-backed PDO instance instead of new PDO('sqlite:main.db').
+// workers-php overlay: getDBConnection() returns a D1-backed PDO instead
+// of new PDO('sqlite:main.db').
 //
-// The rest of the project (Model::getDB, executeQuery, etc.) is unchanged
-// because \WorkersPHP\D1PDO extends \PDO — type hints accept it as-is.
+// The rest of the project is unchanged: \WorkersPHP\D1PDO extends \PDO,
+// so existing type hints accept it.
 
     function getDBConnection(string $db_name = '', string $schema = "sqlite") : PDO {
-        // The upstream signature took a path argument; we ignore it. The
-        // binding to use comes from the request's `$env->DB`.
+        // Upstream's path argument is ignored; the binding is $env->DB.
         try {
             static $pdo = null;
             if ($pdo !== null) return $pdo;
@@ -22,9 +21,8 @@
             $pdo = new \WorkersPHP\D1PDO($env->DB);
             $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
             $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-            // D1 enables foreign keys by default; PRAGMA exec() would be a
-            // no-op via D1Database::exec() but we skip it to avoid a wasted
-            // bridge round-trip.
+            // D1 enables foreign keys by default; the usual PRAGMA would
+            // only waste a bridge round-trip.
 
             return $pdo;
         } catch (PDOException $exception) {
@@ -39,7 +37,7 @@
             if ($result)
                 return $fetchMultiple ? $stmt->fetchAll() : $stmt->fetch();
         } catch (PDOException $e) {
-        } // do nothing and leave block, expected behavior is to return false
+        } // fall through to false
 
         return false;
     }
@@ -49,7 +47,7 @@
             if ($stmt = $db->prepare($query))
                 return array($stmt->execute($params), $stmt);
         } catch (PDOException $e) {
-        } // do nothing and leave block, expected behavior is to return false
+        } // fall through to the error tuple
 
         return array(false, null);
     }

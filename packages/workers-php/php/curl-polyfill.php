@@ -2,22 +2,16 @@
 // Userland curl_* polyfill backed by the JS fetch() bridge.
 //
 // The bundled wasm has no curl extension (upstream php-wasm has no build
-// recipe for it), so apps that call curl_* — Guzzle, WordPress's WP_Http
-// curl transport, most payment SDKs — fatal with "Call to undefined
-// function". This file defines the common curl API in terms of
-// workers_php_call('http_fetch', ...), which dispatches to the Worker's
-// global fetch() via the workers_php_bridge extension. The bridge is
-// EM_ASYNC_JS, so the request truly blocks PHP until fetch() resolves.
+// recipe), so apps calling curl_* — Guzzle, WordPress's WP_Http curl
+// transport, payment SDKs — would fatal. This defines the common curl
+// API in terms of workers_php_call('http_fetch', ...), which blocks PHP
+// until the Worker's fetch() resolves.
 //
-// Loaded only when extension_loaded('curl') is false (i.e. always, for
-// the bundled wasm — but harmless if a future build adds real curl,
-// which then takes precedence).
+// Loaded only when extension_loaded('curl') is false; a future build
+// with real curl takes precedence.
 //
-// Scope: single requests, full body buffered (no streaming), redirects
-// optionally followed by fetch(), timeouts via AbortSignal. NOT
-// supported: multi handles, shares, custom TLS client certs, CURLOPT_*
-// outside the set below (they're accepted and ignored, matching the
-// "best effort" spirit of a polyfill).
+// Scope: single requests, fully buffered (no streaming). Multi handles,
+// shares, and unrecognized CURLOPT_* values are accepted and ignored.
 
 namespace WorkersPHP {
     /** Per-handle state for the curl polyfill. */
@@ -50,7 +44,7 @@ namespace WorkersPHP {
 namespace {
     if (!\extension_loaded('curl')) {
 
-        // --- Constants (subset; real values from ext/curl) ---
+        // Constant values match ext/curl.
 
         \define('CURLE_OK', 0);
         \define('CURLE_COULDNT_CONNECT', 7);

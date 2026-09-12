@@ -1,33 +1,10 @@
 <?php
-// workers-php — PHP-side runtime helpers.
+// workers-php — PHP-side runtime helpers. Mounted into the wasm FS at
+// cold start and `require_once`d on every request.
 //
-// This file is mounted at /persist/workers-php-runtime.php by the JS
-// handler on every isolate cold-start and `require_once`d on every
-// request. It defines:
-//
-//   * \WorkersPHP\Env                — superglobal accessor for bindings
-//   * \WorkersPHP\D1Database         — Workers-D1-shaped client
-//   * \WorkersPHP\D1PreparedStatement
-//   * \WorkersPHP\D1Result
-//   * \WorkersPHP\D1PDO              — PDO-compat shim backed by D1
-//   * \WorkersPHP\D1PDOStatement
-//   * \WorkersPHP\R2Bucket           — Workers-R2-shaped client
-//   * \WorkersPHP\R2Object
-//   * \WorkersPHP\R2ObjectBody
-//   * \WorkersPHP\KVNamespace        — Workers-KV-shaped client
-//
-// Bindings are surfaced to user code via a `$env` global populated by
-// the prelude. The prelude is generated from the createPhpHandler
-// `bindings` option:
-//
-//   createPhpHandler({
-//     bindings: { DB: 'd1', IMAGES: 'r2', KV: 'kv', APP_ENV: 'var' }
-//   })
-//
-// In PHP:
-//
-//   global $env;
-//   $row = $env->DB->prepare('SELECT * FROM x WHERE id = ?')->bind(1)->first();
+// Defines \WorkersPHP\Env plus D1/R2/KV client classes and a PDO shim.
+// Bindings reach user code through the `$env` global, which the prelude
+// populates from createPhpHandler's `bindings` option.
 
 namespace WorkersPHP;
 
@@ -77,8 +54,6 @@ if (!class_exists(__NAMESPACE__ . '\\Env')) {
             return isset($this->declarations[$name]);
         }
     }
-
-    // ---------- D1 ----------
 
     /** Wraps a Workers D1 binding. Mirrors env.DB.* methods. */
     final class D1Database {
@@ -148,7 +123,6 @@ if (!class_exists(__NAMESPACE__ . '\\Env')) {
         public function execute(array $values = []): self {
             $clone = clone $this;
             if ($this->paramOrder !== null) {
-                // Named placeholders: reorder by name.
                 $ordered = [];
                 foreach ($this->paramOrder as $name) {
                     $key = $name;
@@ -185,15 +159,12 @@ if (!class_exists(__NAMESPACE__ . '\\Env')) {
         }
 
         /**
-         * Translate `:name` placeholders to `?` so D1's positional-only binder
-         * accepts them. Skips text inside single-quoted strings (the only
-         * string literal D1's SQLite dialect supports for our purposes).
+         * Translate `:name` placeholders to `?` for D1's positional-only
+         * binder; text inside single-quoted strings is left alone.
          *
          * @return array{0: string, 1: string[]|null}
          */
         private static function rewriteNamedPlaceholders(string $sql): array {
-            // Quick scan: any `:name` token outside a quoted string?
-            // If none, return the SQL untouched with $order=null.
             $hasNamed = (bool) preg_match('/:[A-Za-z_][A-Za-z0-9_]*/', $sql);
             if (!$hasNamed) return [$sql, null];
 
@@ -223,7 +194,6 @@ if (!class_exists(__NAMESPACE__ . '\\Env')) {
                     continue;
                 }
                 if ($ch === ':' && $i + 1 < $len && (ctype_alpha($sql[$i + 1]) || $sql[$i + 1] === '_')) {
-                    // Read identifier.
                     $j = $i + 1;
                     while ($j < $len && (ctype_alnum($sql[$j]) || $sql[$j] === '_')) $j++;
                     $name = substr($sql, $i + 1, $j - $i - 1);
@@ -264,14 +234,11 @@ if (!class_exists(__NAMESPACE__ . '\\Env')) {
     }
 
     /**
-     * PDO-compatible drop-in backed by a D1 binding. Lets existing PHP code
-     * that hardcodes `new PDO('sqlite:...')` keep working with a one-line
-     * swap to `new \WorkersPHP\D1PDO($env->DB)`.
+     * PDO-compatible drop-in backed by D1, so code hardcoding
+     * `new PDO('sqlite:...')` works with a one-line swap.
      *
-     * Extends `\PDO` (with a throwaway in-memory parent instance) so that
-     * type hints like `function foo(\PDO $db)` in user code accept it. The
-     * parent PDO is never actually used — every method is overridden to
-     * route through D1.
+     * Extends \PDO purely so `\PDO` type hints accept it; the parent
+     * instance is never used — every method routes through D1.
      */
     final class D1PDO extends \PDO {
         private D1Database $d1;
@@ -285,9 +252,8 @@ if (!class_exists(__NAMESPACE__ . '\\Env')) {
         private bool $inTxn = false;
 
         public function __construct(string|D1Database $db) {
-            // Satisfy \PDO's constructor with a tiny in-memory database we
-            // never read from. Required only so the LSP `extends \PDO`
-            // contract is honoured for type-hint compatibility.
+            // Parent gets an unused in-memory database to honour the
+            // `extends \PDO` contract.
             parent::__construct('sqlite::memory:');
             $this->d1 = is_string($db) ? new D1Database($db) : $db;
         }
@@ -324,8 +290,8 @@ if (!class_exists(__NAMESPACE__ . '\\Env')) {
         }
 
         public function beginTransaction(): bool {
-            // D1 doesn't expose interactive transactions via the binding API.
-            // Use D1Database::batch() for atomic writes instead.
+            // D1 has no interactive transactions via the binding API; use
+            // D1Database::batch() for atomic writes.
             $this->inTxn = true;
             return true;
         }
@@ -334,7 +300,6 @@ if (!class_exists(__NAMESPACE__ . '\\Env')) {
         public function inTransaction(): bool { return $this->inTxn; }
 
         public function quote(string $string, int $type = \PDO::PARAM_STR): string|false {
-            // Standard SQLite single-quoted string escape: double the quotes.
             return "'" . str_replace("'", "''", $string) . "'";
         }
 
@@ -359,12 +324,10 @@ if (!class_exists(__NAMESPACE__ . '\\Env')) {
         public function setErrorInfo(array $info): void { $this->errorInfo = $info; }
     }
 
-    /** PDOStatement-compatible shim. */
     /**
-     * Extends \PDOStatement so type hints like `PDOStatement $stmt` accept
-     * the D1-backed variant. \PDOStatement's constructor is private — we
-     * bypass it via ReflectionClass::newInstanceWithoutConstructor() and
-     * initialise via a factory + ::init().
+     * PDOStatement-compatible shim. \PDOStatement's constructor is
+     * private, so instances are built via
+     * ReflectionClass::newInstanceWithoutConstructor() plus a factory.
      */
     final class D1PDOStatement extends \PDOStatement implements \IteratorAggregate {
         private ?D1Result $result = null;
@@ -478,8 +441,6 @@ if (!class_exists(__NAMESPACE__ . '\\Env')) {
         }
     }
 
-    // ---------- R2 ----------
-
     /** Wraps a Workers R2 bucket binding. */
     final class R2Bucket {
         public function __construct(public readonly string $binding) {}
@@ -586,8 +547,6 @@ if (!class_exists(__NAMESPACE__ . '\\Env')) {
         public function json(): mixed { return json_decode($this->body(), true); }
     }
 
-    // ---------- KV ----------
-
     /** Wraps a Workers KV namespace binding. */
     final class KVNamespace {
         public function __construct(public readonly string $binding) {}
@@ -617,29 +576,16 @@ if (!class_exists(__NAMESPACE__ . '\\Env')) {
         }
     }
 
-    // ---------- Sessions ----------
-
     /**
-     * D1-backed PHP session save handler.
+     * D1-backed session save handler. The table is created on first use
+     * via the JS-side d1_ensure_sessions_table dispatch (cached per
+     * isolate); use `setupSchema: false` to pre-create it explicitly.
      *
-     * Persists sessions to a SQLite table inside the configured D1
-     * database, so PHP `$_SESSION` survives Worker isolate recycles.
+     * Layout: workers_php_sessions(id TEXT PRIMARY KEY, data BLOB NOT
+     * NULL, expires INTEGER NOT NULL).
      *
-     * The table is `workers_php_sessions` by default and is created on
-     * first use by the JS-side `d1_ensure_sessions_table` dispatch
-     * (cached per-isolate). Use `setupSchema: false` and pre-create
-     * the table yourself if you want explicit control.
-     *
-     * Layout:
-     *   CREATE TABLE workers_php_sessions (
-     *     id      TEXT PRIMARY KEY,
-     *     data    BLOB NOT NULL,
-     *     expires INTEGER NOT NULL
-     *   );
-     *
-     * Register via session_set_save_handler($handler, true) before any
-     * session_start() (the createPhpHandler({ sessionHandler }) option
-     * does this automatically).
+     * createPhpHandler's `sessionHandler` option registers this via
+     * session_set_save_handler() before any session_start().
      */
     class SessionHandlerD1 implements \SessionHandlerInterface, \SessionUpdateTimestampHandlerInterface {
         public function __construct(
@@ -719,13 +665,11 @@ if (!class_exists(__NAMESPACE__ . '\\Env')) {
     }
 
     /**
-     * KV-backed PHP session save handler.
+     * KV-backed session save handler, keyed by `<prefix><session-id>`.
+     * Per-key TTL makes gc() a no-op.
      *
-     * Persists sessions to a Workers KV namespace, keyed by
-     * `<prefix><session-id>`. KV natively supports per-key TTL, so the
-     * gc() callback is a no-op. KV's eventual consistency window (~60s
-     * across regions) and 1-write/sec/key limit are real caveats for
-     * busy sessions.
+     * Caveats for busy sessions: KV is eventually consistent (~60s) and
+     * allows ~1 write/sec per key.
      */
     class SessionHandlerKV implements \SessionHandlerInterface, \SessionUpdateTimestampHandlerInterface {
         public function __construct(
@@ -771,7 +715,6 @@ if (!class_exists(__NAMESPACE__ . '\\Env')) {
             }
         }
 
-        // KV expires items natively via expirationTtl; nothing to do.
         public function gc(int $maxLifetime): int|false { return 0; }
 
         public function validateId(string $id): bool {

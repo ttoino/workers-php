@@ -1,13 +1,11 @@
 // Singleton PhpWeb instance + per-isolate request lock.
 //
-// We hold a single PhpWeb across all requests in the isolate because the
-// wasm runtime is multi-megabyte and instantiation is expensive. PHP global
-// state is reset between requests via `php.refresh()` which calls
-// `pib_refresh` in the wasm.
+// One PhpWeb is shared across the isolate: instantiation of the
+// multi-megabyte wasm runtime is expensive, so PHP global state is reset
+// between requests via `php.refresh()` instead.
 //
-// All PHP work is serialized through `requestChain` because PHP itself is
-// not reentrant: concurrent runs would interleave stdout/stderr and corrupt
-// global state.
+// PHP is not reentrant — concurrent runs would interleave stdout/stderr
+// and corrupt global state — so all work serializes through `requestChain`.
 
 import {PhpWeb} from "../wasm/PhpWeb.mjs";
 import phpWasm from "../wasm/php-web.wasm";
@@ -53,7 +51,7 @@ export const withPhpLock = <T>(fn: () => Promise<T>): Promise<T> => {
 	return next;
 };
 
-/** Helper: idempotently mkdir -p on the wasm FS. */
+/** mkdir -p on the wasm FS. */
 export const ensureDir = (fs: PhpFS, path: string): void => {
 	const segments = path.split("/").filter(Boolean);
 	let cur = "";

@@ -24,8 +24,7 @@ if ($bytes === false) {
     return;
 }
 
-// Use a deterministic, URL-safe key. (sha1 of bytes keeps duplicates
-// idempotent; in a real app you'd add an account/user prefix.)
+// sha1-of-bytes key: URL-safe, and duplicate uploads are idempotent.
 $ext = match ($contentType) {
     'image/jpeg' => 'jpg',
     'image/png'  => 'png',

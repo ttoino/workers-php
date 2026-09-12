@@ -245,11 +245,8 @@ const runPhp = async (
 	const url = new URL(request.url);
 	const php = getPhp();
 
-	// Install the bridge dispatch table for this request. Layered:
-	//   * the response-capture handler (__set_capture) the ob callback uses
-	//   * built-in binding handlers (d1_*, r2_*, kv_*) for declared bindings
-	//   * static `bridgeMethods` from createPhpHandler
-	//   * per-request closures from `bridgeMethodsForRequest`
+	// Layered bridge dispatch for this request: __set_capture, built-in
+	// binding handlers, static bridgeMethods, per-request closures.
 	// Later layers win on key collision.
 	const {slot: captureSlot, bridgeMethod: captureBridgeMethod} = makeCaptureSlot();
 	const builtin = makeBindingDispatch(env, options.bindings);
@@ -302,8 +299,7 @@ const runPhp = async (
 			throw e;
 		}
 
-		// Stage uploaded multipart files into the wasm FS so PHP can access
-		// `$_FILES[...]['tmp_name']` via `file_get_contents`, `fopen`, etc.
+		// Stage uploads so PHP can read `$_FILES[...]['tmp_name']`.
 		const uploadDir = "/tmp";
 		ensureDir(binary.FS, uploadDir);
 		for (const f of prelude.stagedFiles) {
@@ -314,46 +310,35 @@ const runPhp = async (
 			}
 		}
 
-		// Write the raw request body to a known path so our userland
-		// php:// stream wrapper (installed by RUNTIME_LIBRARY_PATH) can
-		// surface it via `file_get_contents('php://input')`. Always
-		// (re)write — including a zero-byte file for requests with no
-		// body — so the wrapper sees the current request's bytes.
+		// Seed the file backing the php://input stream wrapper. Rewrite
+		// unconditionally — even with zero bytes — so a stale body never
+		// leaks into the next request.
 		try {
 			binary.FS.writeFile(INPUT_TMP_PATH, prelude.stdinBytes);
 		} catch (err) {
 			options.onLog("stderr", `workers-php: failed to seed php://input: ${(err as Error).message}\n`);
 		}
 
-		// The capture-ob is registered FIRST so the response (status,
-		// headers, body) gets stored into $GLOBALS['__workers_php_capture']
-		// regardless of which exit path the user script takes: normal
-		// fall-through, exit()/die() (zend_bailout flushes ob buffers
-		// before unwinding), or uncaught exception.
+		// The capture-ob is registered first so the response is captured
+		// on every exit path: normal end, exit()/die() (zend_bailout
+		// flushes ob buffers), or uncaught exception.
 		//
-		// We also explicitly call session_write_close() before returning,
-		// because pib_run() in our embed SAPI doesn't trigger
-		// php_request_shutdown() — that only happens when pib_refresh()
-		// runs at the START of the next request. Without this, session
-		// writes via session_set_save_handler don't happen until the next
-		// request, which breaks read-after-write within the same isolate.
+		// pib_run() never runs php_request_shutdown() — that only happens
+		// at the next request's pib_refresh() — so session_write_close()
+		// is called explicitly, or session writes wouldn't land until the
+		// following request.
 		//
-		// session_write_close runs inside a finally-style wrapper around
-		// the require so it fires even on uncaught exceptions, but die()
-		// inside the script STILL skips it (zend_bailout doesn't run
-		// PHP-userland code after the bailout point). For that case we
-		// rely on PHP's automatic session_write_close-on-shutdown which
-		// runs during the NEXT pib_refresh. The ob_start callback fires
-		// regardless of die() so the response itself is always captured.
+		// die() skips PHP-userland cleanup after the bailout point, so on
+		// that path the explicit close is missed and PHP's automatic
+		// close-on-shutdown (during the next pib_refresh) is the fallback.
 		const code =
 			prelude.phpSource +
 			buildCapture() +
 			`
 chdir(${phpQuoteString(documentRoot)});
 register_shutdown_function(function () {
-    // PHP triggers this on every script termination — normal end,
-    // exit(), die(), uncaught fatal. Use it to flush all pending ob
-    // buffers so the capture callback runs and $GLOBALS gets populated.
+    // Fires on normal end, exit() and fatal errors; the ob flush makes
+    // the capture callback run and populate $GLOBALS.
     if (\\function_exists('session_status') && \\session_status() === PHP_SESSION_ACTIVE) {
         try { \\session_write_close(); } catch (\\Throwable $__) {}
     }
@@ -368,11 +353,8 @@ try {
     \\http_response_code(500);
     echo "<pre>workers-php: uncaught PHP error\\n", \\htmlspecialchars((string)$__e), "</pre>";
 }
-// Flush ob explicitly here too, in case the script returned normally —
-// register_shutdown_function only fires on PHP shutdown, but pib_run
-// doesn't call php_request_shutdown. (The shutdown function still
-// covers exit()/die() because those DO run shutdown handlers via
-// zend_bailout's cleanup path.)
+// pib_run never reaches PHP shutdown, so a normal return needs the same
+// close+flush here; the shutdown function above only covers exit()/die().
 if (\\function_exists('session_status') && \\session_status() === PHP_SESSION_ACTIVE) {
     try { \\session_write_close(); } catch (\\Throwable $__) {}
 }
@@ -384,19 +366,20 @@ while (\\ob_get_level() > 0) {
 		await php.run(code);
 		php.flush();
 
-		// Best-effort cleanup of staged tmpfiles. We do this AFTER PHP runs
-		// so the script can still `file_get_contents($tmp_name)` etc.
+		// Unlink only after PHP ran — the script may read $tmp_name during
+		// execution. Leftovers are wiped with MEMFS on isolate recycle.
 		for (const f of prelude.stagedFiles) {
 			try {
 				const fs = binary.FS as {unlink?: (p: string) => void};
 				if (typeof fs.unlink === "function") fs.unlink(f.path);
 			} catch {
-				// Ignore — leave dangling tmpfile, MEMFS will be wiped on
-				// isolate recycle anyway.
+				// Best effort.
 			}
 		}
 	} finally {
-		// Cleanup happens via capture.stop() below.
+		// FIXME: capture.stop() below only runs on the happy path; a throw
+		// inside this block leaks the output/error event listeners onto the
+		// shared PhpWeb instance for the isolate's lifetime.
 	}
 
 	capture.stop();
@@ -441,11 +424,9 @@ export const createPhpHandler = (
 
 			const url = new URL(request.url);
 
-			// Static-route override: lookup in a specific R2 binding before
-			// touching ASSETS or PHP. Misses fall through to the ASSETS
-			// short-circuit, then to PHP. If `missRewrite` is provided, the
-			// path is rewritten before ASSETS fallback (useful for serving
-			// a default placeholder image when the bucket has no upload).
+			// R2-backed static routes, checked before ASSETS and PHP. A
+			// miss falls through, optionally via `missRewrite` (serving a
+			// placeholder until the bucket has the object).
 			for (const route of opts.staticRoutes) {
 				if (url.pathname.startsWith(route.pathPrefix)) {
 					const r2 = envMap?.[route.from] as
@@ -465,7 +446,6 @@ export const createPhpHandler = (
 						if (route.fallbackToAssets === false) {
 							return new Response("Not Found", {status: 404});
 						}
-						// Optional miss-rewrite before falling back to ASSETS.
 						if (route.missRewrite) {
 							const rewritten = route.missRewrite(url.pathname);
 							if (rewritten && rewritten !== url.pathname) {
@@ -479,7 +459,6 @@ export const createPhpHandler = (
 				}
 			}
 
-			// Static-file short-circuit. Bypasses PHP entirely.
 			if (
 				!opts.disableStaticShortCircuit &&
 				isStaticRequest(url.pathname, opts.staticExtensions)

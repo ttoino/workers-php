@@ -1,11 +1,8 @@
 #!/usr/bin/env bash
-# Promote staged wasm/*.staged files into their canonical names.
+# Promote wasm/*.staged files into their canonical names.
 #
-# Run after `npm run build-wasm` has produced the .staged files and you've
-# verified they work (e.g. via `npx wrangler dev` + curl).
-#
-# For each promoted file, the previous version is backed up as `*.legacy`.
-# Re-run is safe; legacy files from prior promotions are overwritten.
+# Run after `npm run build-wasm` once the staged artifacts are verified.
+# Each replaced file is kept as *.legacy; re-runs are safe.
 
 set -euo pipefail
 
@@ -21,10 +18,9 @@ log()  { printf "%s==>%s %s\n" "${C_BOLD}" "${C_RESET}" "$*" >&2; }
 fail() { printf "%sERROR:%s %s\n" "${C_RED}" "${C_RESET}" "$*" >&2; exit 1; }
 ok()   { printf "%s✓%s %s\n" "${C_GREEN}" "${C_RESET}" "$*" >&2; }
 
-# Files we expect every build to produce. PhpWeb.mjs intentionally NOT here:
-# the upstream version is incompatible with Cloudflare Workers (dynamic imports
-# + navigator.locks), so we maintain our own PhpWeb.mjs by hand in
-# packages/workers-php/src/wasm/.
+# PhpWeb.mjs is absent on purpose: upstream's version is unusable on
+# Workers (dynamic imports + navigator.locks), so a hand-written one is
+# maintained in packages/workers-php/src/wasm/.
 FILES=(
 	php-web.mjs
 	php-web.wasm
@@ -35,7 +31,6 @@ FILES=(
 	resolveDependencies.mjs
 )
 
-# Pre-check: every .staged must exist.
 missing=()
 for name in "${FILES[@]}"; do
 	[[ -f "${WASM_DIR}/${name}.staged" ]] || missing+=( "${name}.staged" )

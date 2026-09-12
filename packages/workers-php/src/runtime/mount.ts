@@ -9,20 +9,16 @@ import {gunzip, iterTar} from "./tar";
 import {ensureDir, type PhpBinary, type PhpFS} from "./php-instance";
 
 /**
- * Path inside the wasm FS where we drop the workers-php PHP-side runtime
- * helpers. The prelude `require_once`s this file on every request; it
- * (a) registers the php:// stream wrapper that backs php://input, and
- * (b) defines \WorkersPHP\Env and binding classes (D1Database, R2Bucket,
- * KVNamespace, D1PDO, …) used by the bindings DX.
+ * Where the PHP-side runtime lives in the wasm FS. The prelude
+ * `require_once`s it on every request: it registers the php://input
+ * stream wrapper and defines \WorkersPHP\Env plus the binding classes.
  */
 export const RUNTIME_LIBRARY_PATH = "/persist/workers-php-runtime.php";
 
 /**
- * The curl polyfill ships as its own file rather than being concatenated
- * into the runtime bundle above: it declares global functions (curl_init,
- * curl_exec, …), which requires a bracketed `namespace { … }` block —
- * and PHP forbids mixing bracketed and unbracketed namespace styles in a
- * single file. The runtime bundle `require_once`s this path at the end.
+ * Separate from the runtime bundle because the polyfill declares global
+ * functions, which requires a bracketed `namespace { … }` block — PHP
+ * forbids mixing bracketed and unbracketed namespaces in one file.
  */
 export const RUNTIME_CURL_POLYFILL_PATH = "/persist/workers-php-curl-polyfill.php";
 
@@ -39,8 +35,8 @@ export interface MountOptions {
 	log?: (msg: string) => void;
 }
 
-// Cache mount promises per (appRoot, assetPath) pair across requests in
-// the same isolate. Map value is the promise that resolves once mounted.
+// Cached per isolate, so the tarball is fetched and extracted at most
+// once per (appRoot, assetPath) pair.
 const mounts = new Map<string, Promise<void>>();
 
 const fetchAssetBytes = async (
@@ -110,7 +106,6 @@ export const ensureMounted = (
 			`mount: fetched ${gz.byteLength} B / gunzip → ${tar.byteLength} B in ${Date.now() - t0}ms`,
 		);
 
-		// Create the appRoot parent chain.
 		ensureDir(binary.FS, opts.appRoot);
 
 		let files = 0;
@@ -139,7 +134,6 @@ export const ensureMounted = (
 				try {
 					binary.FS.writeFile(dest, entry.data);
 				} catch (err) {
-					// Permission denied / weird path — skip but warn.
 					log(`mount: skipped ${dest}: ${(err as Error).message}`);
 				}
 				files++;
@@ -150,11 +144,9 @@ export const ensureMounted = (
 			writeEnvFile(binary.FS, opts.appRoot, opts.envOverrides);
 		}
 
-		// Install the workers-php PHP-side runtime helpers next to the
-		// mounted app, at a stable path so the prelude can require it.
-		// Bundle the input-wrapper + library classes into one file so
-		// require_once is a single round trip. Strip the leading `<?php`
-		// from the second file since the first one is still open.
+		// One bundled file per require: lib.php + input-wrapper (its `<?php`
+		// stripped) + a require line pulling in the polyfill, which must
+		// stay a separate file (see RUNTIME_CURL_POLYFILL_PATH).
 		ensureDir(binary.FS, "/persist");
 		const inputWrapperBody = inputWrapperSource.replace(/^<\?php\s*/, "");
 		binary.FS.writeFile(
@@ -163,8 +155,6 @@ export const ensureMounted = (
 				"\n\n" +
 				inputWrapperBody +
 				"\n\n" +
-				// The curl polyfill lives in its own file (see the const's
-				// docblock for why); pull it in at the end of the bundle.
 				`require_once '${RUNTIME_CURL_POLYFILL_PATH}';\n`,
 		);
 		binary.FS.writeFile(RUNTIME_CURL_POLYFILL_PATH, curlPolyfillSource);

@@ -1,17 +1,11 @@
 /**
- * Wrangler config for the xaufome / feup-ltw-proj deployment.
+ * Wrangler config for the xaufome / feup-ltw-proj deployment; use with
+ * `npm run dev:feup` / `npm run deploy:feup`.
  *
- * Use with: `npm run dev:feup` or `npm run deploy:feup`. The base
- * wrangler.jsonc (without `.feup`) still drives the small built-in demo
- * Worker; both share the same workers-php library but bundle different
- * PHP projects.
- *
- * Persistence is backed by Cloudflare D1 (relational data) and R2
- * (user-uploaded images). Before first use:
- *
+ * First-time setup:
  *   wrangler d1     create xaufome-db
  *   wrangler r2     bucket create xaufome-images
- *   npm run feup:migrate:local    # seed schema + populate into the local D1
+ *   npm run feup:migrate:local
  *
  * Paste the resulting D1 UUID over `database_id` below.
  */
@@ -27,11 +21,8 @@
 	"compatibility_flags": [
 		"nodejs_compat"
 	],
-	// The xaufome PHP project gets bundled into ./dist-feup/app.tar.gz by
-	// `npm run build-feup`. The runtime fetches it on first request via
-	// env.ASSETS and mounts it into the in-process PHP FS. Static files
-	// (CSS/JS/built-in placeholder SVGs) are served from ASSETS; user-
-	// uploaded images are served from R2 via `staticRoutes`.
+	// Holds app.tar.gz + statics, produced by `npm run build-feup`.
+	// Uploads are served from R2 via `staticRoutes` instead.
 	"assets": {
 		"directory": "./dist-feup",
 		"binding": "ASSETS",

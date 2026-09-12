@@ -1,16 +1,11 @@
 #!/usr/bin/env node
 /**
- * workers-php CLI
+ * workers-php CLI: `workers-php build [project-dir] [options]`
  *
- * Usage:
- *   workers-php build [project-dir] [options]
+ * Bundles a PHP project into a gzipped tarball that the runtime mounts
+ * from the Worker's ASSETS binding on first request.
  *
- * Bundles a PHP project into a gzipped tarball that the workers-php
- * runtime mounts from the Cloudflare Workers ASSETS binding on first
- * request.
- *
- * Required external tools:
- *   - GNU tar on PATH (Linux/macOS/WSL).
+ * Requires GNU tar on PATH (Linux/macOS/WSL).
  */
 
 import {spawnSync} from "node:child_process";
@@ -156,13 +151,8 @@ const writeExcludeFile = (path, patterns) => {
 
 const buildTarball = (projectDir, outFile, ignoreFile, quiet) => {
 	mkdirSync(dirname(outFile), {recursive: true});
-	// We tar from the project's *parent* directory and use the project's
-	// basename so the archive starts with `app/...`. The runtime strips
-	// that "app/" prefix via stripPrefix. We rename the directory in-place
-	// via a symlink trick: tar with --transform.
-	//
-	// Simpler: tar from inside the project dir with `.` and put each entry
-	// under `app/` by using --transform 's,^\./,app/,'.
+	// Every entry lands under `app/`, which the runtime removes again via
+	// stripPrefix.
 	const tarArgs = [
 		"-czf",
 		outFile,
@@ -189,8 +179,7 @@ const sha256File = (path) => {
 };
 
 const fileCount = (dir, ignores) => {
-	// Approximate; used for logging only. Walk and count, respecting a few
-	// common ignore directories.
+	// Approximate count for logging; skips a few common non-app dirs.
 	let n = 0;
 	const walk = (d) => {
 		for (const name of readdirSync(d, {withFileTypes: true})) {
@@ -223,10 +212,9 @@ const wranglerSnippet = (assetsDir, projectBase) => `
 }
 `;
 
-/** Crude JSONC merge: read existing wrangler.jsonc, parse with comment
- *  stripping, add/replace the assets block, write back keeping formatting
- *  as JSON. We don't preserve user comments because that requires a real
- *  JSONC AST; instead we write a banner indicating workers-php touched it. */
+/** Add/replace the assets block in wrangler.jsonc. Comments are stripped
+ *  rather than preserved (no JSONC AST here); a banner marks the file as
+ *  touched by workers-php. */
 const mergeWranglerConfig = (configPath, assetsDir) => {
 	if (!existsSync(configPath)) {
 		const initial = {
@@ -243,7 +231,6 @@ const mergeWranglerConfig = (configPath, assetsDir) => {
 		return;
 	}
 	let raw = readFileSync(configPath, "utf8");
-	// Strip // line comments and /* */ block comments before JSON.parse.
 	const stripped = raw
 		.replace(/\/\*[\s\S]*?\*\//g, "")
 		.replace(/(^|[^:])\/\/.*$/gm, "$1");

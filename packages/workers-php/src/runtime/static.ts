@@ -40,8 +40,8 @@ const lastSegment = (pathname: string): string => {
 };
 
 /**
- * Match `/foo/bar.css` (etc.) but NOT `/foo/bar.php?asset=css` or
- * `/path/segment-without-dot`. Excludes paths ending in `/`.
+ * Match `/foo/bar.css` but not `/foo/bar.php?asset=css` or dotless
+ * segments; paths ending in `/` never match.
  */
 export const isStaticRequest = (pathname: string, exts: readonly string[]): boolean => {
 	const seg = lastSegment(pathname);

@@ -1,30 +1,18 @@
 #!/usr/bin/env bash
 # Prepare ./feup-ltw-proj for bundling with workers-php.
 #
-# This is where the project tree is patched/overlaid for serverless
-# execution:
+#   1. Overlay router.php (Apache-style front controller).
+#   2. session.php: cookie_secure conditional on HTTPS (dev is plain HTTP).
+#   3. connection.php: getDBConnection() returns \WorkersPHP\D1PDO(env->DB).
+#   4. files.php: uploadImage() writes resized WebP to R2 (env->IMAGES).
+#   5. model.php: getImagePath() returns the canonical URL; staticRoutes
+#      + missRewrite handle the placeholder fallback.
+#   6. cart/index.php: add the missing lib/page.php require (upstream bug).
+#   7. query.php: AggregatorClause emits a neutral boolean instead of "()"
+#      (upstream bug; SQLite rejects empty parens).
+#   8. Ensure every pictures/<type>/ has a default.svg for missRewrite.
 #
-#   1. Overlay router.php into the project root (Apache-style front
-#      controller).
-#   2. Patch lib/session.php so cookie_secure is conditional on HTTPS
-#      (wrangler dev runs over plain HTTP).
-#   3. Overlay database/connection.php so getDBConnection() returns a
-#      \WorkersPHP\D1PDO instance pointed at the env->DB binding.
-#   4. Overlay lib/files.php so uploadImage() writes the resized WebP
-#      bytes to the env->IMAGES R2 binding instead of MEMFS.
-#   5. Patch database/models/model.php's HasImage trait so getImagePath()
-#      just returns the canonical URL — staticRoutes + missRewrite serve
-#      the right bytes (R2 upload or ASSETS default.svg).
-#   6. Patch cart/index.php to add the missing require_once for
-#      lib/page.php (upstream bug; surfaces only as a 500 right now).
-#   7. Patch database/models/query.php's AggregatorClause so an all-null
-#      clause list emits a neutral boolean instead of "()" (upstream bug;
-#      SQLite rejects empty parens — surfaced as /search/?q=... → 500).
-#   8. Copy the project's default*.svg image-folder placeholders so a
-#      single `default.svg` exists in every <type>/ folder — staticRoutes
-#      missRewrite rewrites <id>.webp → default.svg uniformly.
-#
-# All edits are idempotent and confined to the gitignored project clone.
+# All edits are idempotent and confined to the gitignored clone.
 
 set -euo pipefail
 
@@ -43,21 +31,18 @@ warn() { printf "%s==>%s %s\n" "${C_YELLOW}" "${C_RESET}" "$*" >&2; }
 fail() { printf "%sERROR:%s %s\n" "${C_RED}" "${C_RESET}" "$*" >&2; exit 1; }
 ok()   { printf "%s✓%s %s\n" "${C_GREEN}" "${C_RESET}" "$*" >&2; }
 
-# ---------- Preflight ----------
+# Preflight
 
 if [[ ! -d "${PROJECT_DIR}" ]]; then
 	fail "Project not cloned. Run:
     git clone https://github.com/ttoino/feup-ltw-proj.git ${PROJECT_DIR}"
 fi
 
-# We no longer seed a local sqlite main.db — D1 is the source of truth.
-# Schema seeding happens through the npm run feup:migrate:{local,remote}
-# scripts, which shell out to `wrangler d1 execute`. Remove any stale db.
+# D1 is the source of truth (seeded via feup:migrate:*); drop stale sqlite.
 rm -f "${PROJECT_DIR}/main.db" "${PROJECT_DIR}/database/main.db"
 
-# D1's SQL runner doesn't allow PRAGMA statements (SQLITE_AUTH).  Strip the
-# `PRAGMA FOREIGN_KEYS = ON;` line from the three schema files. D1 enables
-# foreign keys by default, so this is a no-op semantically.
+# D1 rejects PRAGMA (SQLITE_AUTH) and enables foreign keys by default, so
+# stripping the lines is semantically a no-op.
 log "Stripping PRAGMA lines from schema/*.sql (incompatible with D1)"
 for sql in create populate triggers; do
 	f="${PROJECT_DIR}/database/schema/${sql}.sql"
@@ -68,13 +53,13 @@ for sql in create populate triggers; do
 done
 ok "PRAGMA stripped"
 
-# ---------- 1. Overlay router.php ----------
+# 1. Overlay router.php
 
 log "Installing router.php into ${PROJECT_DIR}/"
 cp "${OVERLAY_DIR}/router.php" "${PROJECT_DIR}/router.php"
 ok "router.php installed"
 
-# ---------- 2. Patch lib/session.php for HTTP local dev ----------
+# 2. session.php: cookie_secure conditional on HTTPS
 
 readonly SESSION_FILE="${PROJECT_DIR}/lib/session.php"
 [[ -f "${SESSION_FILE}" ]] || fail "Missing ${SESSION_FILE}"
@@ -89,14 +74,13 @@ python3 - "${SESSION_FILE}" <<'PYEOF'
 import sys, pathlib
 p = pathlib.Path(sys.argv[1])
 src = p.read_text()
-# The workers-php CGI prelude sets $_SERVER['HTTPS'] = 'on' over HTTPS and
-# 'off' over HTTP. PHP's empty('off') is false, so we have to compare for
-# the literal 'on' string instead of using empty().
+# $_SERVER['HTTPS'] is the literal 'on'/'off'; empty('off') is false, so
+# compare against 'on' explicitly.
 new_block = (
     "// workers-php: cookie_secure made conditional so wrangler dev (plain HTTP) keeps sessions.\n"
     "                'cookie_secure' => (($_SERVER['HTTPS'] ?? '') === 'on') ? '1' : '0',"
 )
-# Match the original literal, or our own previous (buggy) replacement.
+# Match the original or a previous replacement (idempotent).
 patterns = [
     "'cookie_secure' => '1',",
     "// workers-php: cookie_secure made conditional so wrangler dev (plain HTTP) keeps sessions.\n                'cookie_secure' => !empty($_SERVER['HTTPS']) ? '1' : '0',",
@@ -112,19 +96,19 @@ else:
 PYEOF
 ok "session.php patched"
 
-# ---------- 3. Overlay database/connection.php (D1 instead of sqlite) ----------
+# 3. Overlay connection.php (D1)
 
 log "Installing D1-backed connection.php into ${PROJECT_DIR}/database/"
 cp "${OVERLAY_DIR}/connection.php" "${PROJECT_DIR}/database/connection.php"
 ok "connection.php overlay installed"
 
-# ---------- 4. Overlay lib/files.php (R2 instead of MEMFS) ----------
+# 4. Overlay files.php (R2)
 
 log "Installing R2-backed files.php into ${PROJECT_DIR}/lib/"
 cp "${OVERLAY_DIR}/files.php" "${PROJECT_DIR}/lib/files.php"
 ok "files.php overlay installed"
 
-# ---------- 5. Patch HasImage::getImagePath() to skip the file_exists branch ----------
+# 5. model.php: getImagePath() skips the file_exists branch
 
 readonly MODEL_FILE="${PROJECT_DIR}/database/models/model.php"
 [[ -f "${MODEL_FILE}" ]] || fail "Missing ${MODEL_FILE}"
@@ -140,8 +124,8 @@ import sys, pathlib, re
 p = pathlib.Path(sys.argv[1])
 src = p.read_text()
 
-# Replace the entire getImagePath() body with a one-liner. R2 + missRewrite
-# in src/feup-index.ts handle the default-image fallback at the URL layer.
+# R2 + missRewrite (src/feup-index.ts) handle the placeholder fallback at
+# the URL layer, so the body becomes a one-liner.
 new_method = (
     "        function getImagePath(): string {\n"
     "            // workers-php: getImagePath simplified — staticRoutes/missRewrite\n"
@@ -152,8 +136,6 @@ new_method = (
     "        }"
 )
 
-# Find and replace by regex. We anchor on the exact original body to avoid
-# accidentally double-patching.
 pattern = re.compile(
     r"        function getImagePath\(\): string \{[\s\S]*?\n        \}",
     re.MULTILINE,
@@ -166,7 +148,7 @@ p.write_text(src)
 PYEOF
 ok "model.php patched"
 
-# ---------- 6. Fix cart/index.php (upstream forgets require_once lib/page.php) ----------
+# 6. cart/index.php: add the missing lib/page.php require
 
 readonly CART_FILE="${PROJECT_DIR}/cart/index.php"
 [[ -f "${CART_FILE}" ]] || fail "Missing ${CART_FILE}"
@@ -179,7 +161,7 @@ else
 import sys, pathlib
 p = pathlib.Path(sys.argv[1])
 src = p.read_text()
-# Inject right after lib/session.php require, which is the last lib/ load.
+# Anchor: the lib/session.php require is the last lib/ load in the file.
 needle = "    require_once('../lib/session.php');"
 if needle not in src:
     raise SystemExit("could not find lib/session.php require in cart/index.php")
@@ -190,7 +172,7 @@ PYEOF
 	ok "cart/index.php patched"
 fi
 
-# ---------- 7. Patch AggregatorClause (empty clause list -> neutral boolean) ----------
+# 7. query.php: AggregatorClause with an empty clause list
 
 readonly QUERY_FILE="${PROJECT_DIR}/database/models/query.php"
 [[ -f "${QUERY_FILE}" ]] || fail "Missing ${QUERY_FILE}"
@@ -203,9 +185,8 @@ else
 import sys, pathlib
 p = pathlib.Path(sys.argv[1])
 src = p.read_text()
-# Upstream builds "()" when every sub-clause is null (e.g. /search/ with no
-# min/max score or price params) — SQLite: near ")": syntax error. Emit the
-# aggregation's neutral element instead so the clause is a no-op.
+# An all-null clause list (e.g. /search/ with no filters) must not emit
+# "()": SQLite rejects empty parens. Use the aggregation's neutral element.
 needle = '            $this->queryString = sprintf("(%s)", implode(sprintf(" %s ", static::getAggregationType()->value), $attrs));'
 replacement = (
     "            // workers-php: an all-null clause list must not emit \"()\" —\n"
@@ -224,12 +205,10 @@ PYEOF
 	ok "query.php patched"
 fi
 
-# ---------- 8. Normalise default-image filenames ----------
+# 8. Normalise default-image filenames
 #
-# The project ships default<N>.svg files for /assets/pictures/user/ and /dish/
-# (varying), and a single default.svg for /menu/ and /restaurant/. Our
-# missRewrite rule swaps <id>.webp -> default.svg uniformly, so we drop a
-# copy of default0.svg as default.svg in the folders that lack it.
+# missRewrite swaps <id>.webp → default.svg uniformly, so folders that
+# only ship default<N>.svg get a plain default.svg copy.
 
 readonly PICTURES_DIR="${PROJECT_DIR}/assets/pictures"
 for folder in user dish menu restaurant; do
@@ -237,7 +216,6 @@ for folder in user dish menu restaurant; do
 	if [[ -f "${dst}" ]]; then
 		continue
 	fi
-	# Use default0.svg if available, otherwise the first match.
 	src="${PICTURES_DIR}/${folder}/default0.svg"
 	if [[ ! -f "${src}" ]]; then
 		src=$(ls "${PICTURES_DIR}/${folder}/default"*.svg 2>/dev/null | head -1)

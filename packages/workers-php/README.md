@@ -169,7 +169,8 @@ If you need to drive PHP yourself, the package also exports:
 - `getPhp()` — singleton `PhpWeb` instance (one per isolate).
 - `withPhpLock(fn)` — serialize work through the singleton.
 - `ensureMounted(php, assets, opts)` — idempotent ASSETS-backed mount.
-- `buildPrelude(request, opts)` / `parseOutput(stdout)` / `buildEpilogue()` — CGI shims.
+- `buildPrelude(request, opts)` / `buildCapture()` / `makeCaptureSlot()` —
+  CGI shims and response capture.
 - `iterTar(buf)` / `gunzip(bytes)` — minimal POSIX ustar parser and gzip decoder.
 - `installBridge(php, methods)` / `setBridgeMethods(php, methods)` — install
   arbitrary `Module.workersPhpBridge[method]` handlers callable from PHP via
@@ -348,7 +349,7 @@ before `session_start()`. The auto-install is only triggered when
   carries a small `pib.c` patch (`build/patches/pib.c`) that forces
   `php_call_shutdown_functions` + `php_output_end_all` to fire at the
   end of every script, so the capture handler runs for **every** exit
-  path — normal end, exceptions, AND `exit()` / `die()`. (Stock
+  path — normal end, exceptions, and `exit()`/`die()` too. (Stock
   `pib_run` skips request-shutdown entirely, which means a script that
   `header('Location: ...'); die()`s leaves PHP without ever invoking
   any of those callbacks and the response would otherwise be lost.)
@@ -382,9 +383,9 @@ before `session_start()`. The auto-install is only triggered when
 - **Cold start.** Each new isolate downloads + extracts the tarball on
   the first request (~50–300 ms depending on app size). Warm requests
   are fast (~20 ms for vanilla PHP, ~200 ms for Laravel).
-- **CPU time.** Paid allows 5 min CPU per request (30 s default,
-  configurable); Free allows 10 ms. Laravel boot uses ~200 ms CPU per
-  warm request — comfortable on Paid, impossible on Free.
+- **CPU time on Paid.** 5 min CPU per request (30 s default,
+  configurable). Laravel boot uses ~200 ms CPU per warm request —
+  comfortable.
 - **Memory.** Workers' 128 MB isolate cap. The mounted tar plus the wasm
   heap means projects up to ~50 MB unpacked are comfortable; larger may OOM.
 - **Compiled-in PHP extensions** (verified against the bundled wasm at

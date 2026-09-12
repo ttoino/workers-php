@@ -35,7 +35,7 @@ build/                        Scripts that compile the PHP wasm artifact from
                               seanmorris/php-wasm. See build/README.md.
 examples/bindings-demo/       Reference PHP app using D1 + R2 + KV + vars
                               through the `$env` superglobal.
-src/index.ts                  Tiny demo Worker (~10 lines), the original PHP demo.
+src/index.ts                  Tiny demo Worker, the original PHP demo.
 src/bindings-index.ts         Worker entrypoint for examples/bindings-demo.
 src/feup-index.ts             Worker that deploys ttoino/feup-ltw-proj
                               (xaufome). See "Run the xaufome deployment".
@@ -89,7 +89,7 @@ for the full bindings API.
 
 ## Run the xaufome deployment
 
-A second deployment recipe runs [ttoino/feup-ltw-proj][feup] (xaufome),
+A third demo deploys [ttoino/feup-ltw-proj][feup] (xaufome),
 a 65-file PHP-from-scratch restaurant site originally written for a
 LAMP stack. Persistence is now backed by:
 

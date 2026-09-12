@@ -7,15 +7,14 @@ import type {BindingDeclarations} from "./handler";
 import type {BridgeMethods} from "./bridge";
 
 /**
- * Per-isolate cache of `<binding>:<table>` pairs we've already
- * `CREATE TABLE IF NOT EXISTS`-ed. Keeps the session-handler's first-
- * use schema setup from costing a D1 round-trip on every request.
+ * Per-isolate cache of `<binding>:<table>` pairs already ensured via
+ * `CREATE TABLE IF NOT EXISTS`, so session schema setup doesn't cost a
+ * D1 round-trip on every request.
  */
 const ensuredSessionTables = new Set<string>();
 
-// Minimal duck-types for the bindings we touch. We avoid `D1Database` /
-// `R2Bucket` / `KVNamespace` imports so the library compiles even when
-// workers-types isn't installed in the consuming project.
+// Duck-typed instead of importing D1Database/R2Bucket/KVNamespace, so
+// the library compiles without workers-types in the consuming project.
 interface D1PreparedStatement {
 	bind(...values: unknown[]): D1PreparedStatement;
 	all(): Promise<{results: unknown[]; success: boolean; meta?: unknown}>;
@@ -115,9 +114,8 @@ export const makeBindingDispatch = (
 		return b;
 	};
 
-	// Only register dispatch methods for binding kinds the user actually
-	// declared, to avoid leaking access in the rare case env contains
-	// extra bindings we don't expose.
+	// Register methods only for declared kinds, so undeclared bindings on
+	// env stay unreachable from PHP.
 	const kinds = new Set(Object.values(bindings));
 
 	if (kinds.has("d1")) {
@@ -140,9 +138,8 @@ export const makeBindingDispatch = (
 			return await stmt.first();
 		};
 		out.d1_run = async (binding: string, sql: string, params: unknown[]) => {
-			// D1's `.run()` returns `{ results, success, meta }` for both
-			// SELECTs and writes; we preserve `results` so PDO-style code
-			// that does `prepare(...)->execute()->fetch()` works.
+			// D1's `.run()` returns `results` for SELECTs too; preserve it
+			// so `prepare(...)->execute()->fetch()` keeps working.
 			const r = (await buildStmt(binding, sql, params).run()) as {
 				results?: unknown[];
 				success: boolean;
@@ -156,17 +153,13 @@ export const makeBindingDispatch = (
 		out.d1_exec = async (binding: string, sql: string) => {
 			return await d1(binding).exec(sql);
 		};
-		/**
-		 * Create the workers-php sessions table on first use. Subsequent
-		 * calls in the same isolate are no-ops thanks to the
-		 * `ensuredSessionTables` cache. Idempotent on the DB side via
-		 * `IF NOT EXISTS`.
-		 */
+		/** First-use session schema; cached per isolate, idempotent via
+		 *  `IF NOT EXISTS`. */
 		out.d1_ensure_sessions_table = async (binding: string, table: string) => {
 			const cacheKey = `${binding}:${table}`;
 			if (ensuredSessionTables.has(cacheKey)) return null;
-			// D1's exec() runs a single statement at a time in some
-			// versions. Split into two calls to stay portable.
+			// Two calls: exec() runs a single statement at a time on some
+			// D1 versions.
 			await d1(binding).exec(
 				`CREATE TABLE IF NOT EXISTS "${table}" (` +
 				` id TEXT PRIMARY KEY,` +
@@ -253,13 +246,10 @@ export const makeBindingDispatch = (
 		};
 	}
 
-	// Outbound HTTP backing the userland curl_* polyfill. Always available:
-	// unlike the storage methods above it touches no env bindings, just the
-	// global fetch(). Bodies cross the bridge base64-encoded so binary
-	// payloads survive. fetch() throws TypeError on network-level failures
-	// (DNS, TCP, TLS) — the bridge envelope turns that into a
-	// \WorkersPHP\BridgeException which the polyfill maps to
-	// CURLE_COULDNT_CONNECT.
+	// Outbound HTTP backing the curl_* polyfill. Uses the global fetch(),
+	// so no binding declaration is needed. Bodies cross the bridge
+	// base64-encoded; fetch()'s TypeError on network failure surfaces as
+	// \WorkersPHP\BridgeException → CURLE_COULDNT_CONNECT in the polyfill.
 	out.http_fetch = async (
 		url: string,
 		opts: {
@@ -300,11 +290,9 @@ export const makeBindingDispatch = (
 };
 
 /**
- * Build the PHP literal that initialises `$env` for the user script.
- *
- * Looks up `var`/`secret` bindings from the JS-side env so their values
- * are inlined; the other binding types just get a {type, binding} shape
- * the PHP `\WorkersPHP\Env` class instantiates on first access.
+ * Build the PHP literal that initialises `$env`. `var`/`secret` values
+ * are inlined from the JS-side env; other kinds become {type, binding}
+ * shapes that `\WorkersPHP\Env` instantiates lazily.
  */
 export const buildEnvDeclaration = (
 	env: unknown,
@@ -386,7 +374,6 @@ export const buildSessionDeclaration = (
 			strictLine
 		);
 	}
-	// KV
 	const prefix = cfg.keyPrefix ?? "sess:";
 	return (
 		`$__sessionHandler = new \\WorkersPHP\\SessionHandlerKV($env->${cfg.from}, ${phpQuote(prefix)}, ${ttl});\n` +

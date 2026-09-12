@@ -1,8 +1,8 @@
-// workers-php — run a PHP project on Cloudflare Workers, with the project
-// stored as static assets (so it doesn't count against the Worker bundle
-// size cap) and dispatched to PHP via WebAssembly.
+// workers-php — run a PHP project on Cloudflare Workers. The project ships
+// as static assets (not counted against the Worker bundle size) and is
+// dispatched to PHP via WebAssembly.
 //
-// See https://github.com/anomalyco/workers-php for usage.
+// See https://github.com/ttoino/php-wasm-worker for usage.
 
 export {createPhpHandler} from "./runtime/handler";
 export type {

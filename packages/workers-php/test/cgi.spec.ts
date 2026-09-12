@@ -134,7 +134,7 @@ describe("parseOutput", () => {
 		const result = parseOutput(stdout);
 		expect(result.status).toBe(404);
 		expect(result.body).toBe("nope");
-		// Status: should not bleed into the Headers map.
+		// Status: is a pseudo-header and must not leak into Headers.
 		expect(result.headers.get("Status")).toBeNull();
 	});
 
@@ -175,14 +175,13 @@ describe("buildCapture", () => {
 		expect(src).toContain("\\workers_php_call('__set_capture'");
 		expect(src).toContain("\\http_response_code()");
 		expect(src).toContain("\\headers_list()");
-		// Callback returns empty so nothing reaches stdout.
 		expect(src).toContain("return ''");
 	});
 
 	it("returns empty from the callback so nothing goes to stdout", () => {
 		const src = buildCapture();
-		// The callback must not write anything onward — the response is
-		// returned to JS via the bridge, not via stdout.
+		// The response goes to JS via the bridge; writing it onward would
+		// duplicate it into stdout.
 		expect(src).toMatch(/return ''\s*;\s*\}\s*\)/);
 	});
 });

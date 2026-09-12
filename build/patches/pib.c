@@ -47,7 +47,7 @@ char *_sapi_name = NULL;
 static const char pib_embed_sapi_name[] = "embed";
 
 /**
- * Initialize Embdedded PHP
+ * Initialize Embedded PHP
  */
 int EMSCRIPTEN_KEEPALIVE __attribute__((noinline)) pib_init(char *__sapi_name)
 {
@@ -244,25 +244,19 @@ int EMSCRIPTEN_KEEPALIVE pib_run(char *code)
 	}
 	zend_end_try();
 
-	// --- workers-php: force ob callbacks to fire on every exit path ---
+	// workers-php: force ob callbacks to fire on every exit path.
 	//
-	// If the script ended via die()/exit() PHP records that as a
-	// "graceful exit" exception which is left dangling in EG(exception).
-	// Any PHP-userland code that runs after this (ob_start callback,
-	// shutdown_function, __destruct) short-circuits at the first opcode
-	// because the engine sees a pending exception.
-	//
-	// Clear ANY exception so the callbacks can run. Real exceptions have
-	// already been reported by zend_exception_error above; graceful/unwind
-	// exits don't need to propagate further.
+	// die()/exit() leaves a dangling "graceful exit" exception in
+	// EG(exception), and any userland code after it (ob callbacks,
+	// shutdown functions) short-circuits at the first opcode. Clear it so
+	// they can run; real exceptions were already reported above.
 	if (EG(exception)) {
 		zend_clear_exception();
 	}
 
-	// Mirror php_request_shutdown's ordering: shutdown_functions, then
-	// __destructors (skipped — too risky post-bailout), then output
-	// buffers. Each in its own zend_try because any of these can
-	// re-bailout, and we want to make sure the rest still run.
+	// Mirror php_request_shutdown's ordering: shutdown functions, then
+	// output buffers (__destructors are skipped — too risky post-bailout).
+	// Each in its own zend_try since any can re-bailout.
 	zend_try
 	{
 		if (PG(modules_activated)) {
@@ -304,7 +298,7 @@ bool tokenize(zval *return_value, zend_string *source, zend_class_entry *token_c
 
 
 /**
- * Return the PHP extension API version.
+ * Tokenize PHP source code.
 */
 char* EMSCRIPTEN_KEEPALIVE pib_tokenize(char *code)
 {

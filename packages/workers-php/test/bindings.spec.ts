@@ -1,15 +1,12 @@
 // Bindings end-to-end: PHP code uses $env->X to reach D1, R2, and KV
 // instances, and the values round-trip through workers_php_call.
 //
-// We use simple in-process mocks for the bindings rather than the
-// vitest-pool-workers real D1 because we want to verify that the
-// dispatch dispatches into whatever the user provides on `env`.
+// Bindings are mocked in-process: the point is that dispatch reaches
+// whatever the user provides on `env`, not D1 itself.
 
 import {describe, expect, it, beforeAll} from "vitest";
 import {gzipSync} from "node:zlib";
 import {createPhpHandler} from "../src/index";
-
-// ---------- minimal tarball builder ----------
 
 const BLOCK = 512;
 const encoder = new TextEncoder();
@@ -75,7 +72,7 @@ const makeMockAssets = (tarGz: Uint8Array): Fetcher =>
 		},
 	}) as Fetcher;
 
-// ---------- mock bindings ----------
+// Mock bindings
 
 interface D1MockStmt {
 	bind(...values: unknown[]): D1MockStmt;
@@ -209,15 +206,12 @@ const makeMockKV = () => {
 	};
 };
 
-// ---------- tests ----------
-
 describe("bindings", () => {
 	const phpCode = `<?php
 header('Content-Type: application/json');
 
 $out = ['ok' => true];
 
-// D1
 $row = $env->DB->prepare('SELECT * FROM Restaurant WHERE id = ?')->bind(1)->first();
 $out['d1_first'] = $row;
 
@@ -228,7 +222,7 @@ $out['d1_named'] = $first;
 $result = $env->DB->prepare('INSERT INTO X (n) VALUES (?)')->bind('a')->run();
 $out['d1_run_meta'] = (array) $result->meta;
 
-// R2 — note "..." double quotes so PHP interprets \\x00 escapes
+// Double quotes so PHP interprets the \\x00 escapes.
 $env->IMAGES->put('hello.bin', "\\x00\\x01\\x02hello", ['contentType' => 'application/octet-stream']);
 $obj = $env->IMAGES->get('hello.bin');
 $out['r2_size'] = $obj?->size;
@@ -241,7 +235,6 @@ $env->KV->put('counter', '42');
 $out['kv_get'] = $env->KV->get('counter');
 $out['kv_missing'] = $env->KV->get('nope');
 
-// var/secret
 $out['app_env'] = $env->APP_ENV;
 
 echo json_encode($out);
@@ -315,12 +308,10 @@ header('Content-Type: application/json');
 $pdo = new \\WorkersPHP\\D1PDO($env->DB);
 $pdo->setAttribute(\\PDO::ATTR_ERRMODE, \\PDO::ERRMODE_EXCEPTION);
 
-// SELECT via prepare + named placeholder
 $stmt = $pdo->prepare('SELECT * FROM X WHERE id = :id');
 $stmt->execute([':id' => 1]);
 $row = $stmt->fetch(\\PDO::FETCH_ASSOC);
 
-// INSERT, then lastInsertId
 $insert = $pdo->prepare('INSERT INTO X (n) VALUES (:n)');
 $insert->execute([':n' => 'hello']);
 $id = $pdo->lastInsertId();
@@ -359,7 +350,7 @@ echo json_encode(['row' => $row, 'last_id' => $id]);
 			{name: "app/index.php", data: "<?php echo 'should not run for static';"},
 		]);
 		const r2 = makeMockR2();
-		// Note: NOT pre-populating R2; this test only exercises the miss path.
+		// R2 stays empty; this test only exercises the miss path.
 
 		const env = {
 			ASSETS: {
@@ -431,7 +422,7 @@ echo json_encode(['row' => $row, 'last_id' => $id]);
 			staticRoutes: [{pathPrefix: "/uploads/", from: "IMAGES"}],
 		});
 
-		// R2 hit
+		// R2 hit, then R2 miss falling back to ASSETS.
 		const hit = await handler(new Request("https://example.com/uploads/x.bin"), env, {
 			waitUntil: () => {},
 			passThroughOnException: () => {},
@@ -440,7 +431,6 @@ echo json_encode(['row' => $row, 'last_id' => $id]);
 		const bytes = new Uint8Array(await hit.arrayBuffer());
 		expect(Array.from(bytes)).toEqual([1, 2, 3]);
 
-		// R2 miss + fallback to ASSETS
 		const miss = await handler(
 			new Request("https://example.com/uploads/fallback.txt"),
 			env,
@@ -451,13 +441,8 @@ echo json_encode(['row' => $row, 'last_id' => $id]);
 	}, 30000);
 });
 
-// ----------------------------------------------------------------------
-// Session handlers
-// ----------------------------------------------------------------------
-
-/** Build a minimal in-process D1 that handles just enough SQL for the
- *  workers-php session handler: CREATE TABLE IF NOT EXISTS, INSERT … ON
- *  CONFLICT UPDATE, SELECT … WHERE id = ? AND expires > ?, DELETE … */
+/** Minimal in-process D1 handling just the session handler's SQL:
+ *  CREATE TABLE IF NOT EXISTS, INSERT … ON CONFLICT, SELECT, DELETE. */
 const makeSessionD1 = () => {
 	type Row = {id: string; data: string; expires: number};
 	const store = new Map<string, Row>();
@@ -581,7 +566,8 @@ echo json_encode($out);
 			sessionHandler: {backend: "d1", from: "DB", strictMode: false},
 		});
 
-		// Request 1: set $_SESSION['greeting'] = 'hello'.
+		// Request 1 sets $_SESSION['greeting']; request 2 reads it back via
+		// the same cookie.
 		const res1 = await handler(
 			new Request("https://example.com/?set=hello"),
 			env,
@@ -595,13 +581,11 @@ echo json_encode($out);
 		expect(body1.set).toBe("hello");
 		expect(body1.session_id).toBe(sid);
 
-		// Verify D1 has the session row.
 		const row = env.DB._store.get(sid);
 		expect(row).toBeDefined();
 		expect(row!.data).toContain("greeting");
 		expect(row!.data).toContain("hello");
 
-		// Request 2: read $_SESSION['greeting'] back via the same cookie.
 		const res2 = await handler(
 			new Request("https://example.com/", {
 				headers: {cookie: `PHPSESSID=${sid}`},
@@ -676,14 +660,14 @@ $_SESSION['greeting'] = 'should-not-persist';
 			sessionHandler: {backend: "d1", from: "DB", ttlSeconds: 0, strictMode: false},
 		});
 
-		// Request 1: writes session with ttl=0 (expires "now").
+		// ttl=0, so the row expires immediately.
 		const res1 = await handler(new Request("https://example.com/"), env, newCtx());
 		const setCookie = res1.headers.get("set-cookie") ?? "";
 		const sid = setCookie.match(/PHPSESSID=([a-zA-Z0-9]+)/)?.[1] ?? "";
 		expect(await res1.text()).toBe("(empty)");
 
-		// Request 2: row exists but expires (which equals "now") is no
-		// longer "> now", so read() returns empty.
+		// The row's expires is no longer "> now", so read() returns empty;
+		// a fresh id may be generated, but no data must leak either way.
 		const res2 = await handler(
 			new Request("https://example.com/", {
 				headers: {cookie: `PHPSESSID=${sid}`},
@@ -691,8 +675,6 @@ $_SESSION['greeting'] = 'should-not-persist';
 			env,
 			newCtx(),
 		);
-		// session may have generated a new id (because the old row is
-		// effectively expired) — either way, no greeting should leak.
 		expect(await res2.text()).toBe("(empty)");
 	}, 30000);
 });

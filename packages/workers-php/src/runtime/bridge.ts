@@ -1,14 +1,9 @@
-// JS↔PHP bridge installer.
+// JS↔PHP bridge installer. The `workers_php_bridge` C extension exposes
+// `workers_php_call(string $method, array $args)`, which looks up
+// `Module.workersPhpBridge[$method]` and awaits its return value.
 //
-// The bundled `workers_php_bridge` C extension exposes a single PHP
-// function `workers_php_call(string $method, array $args)`. Its
-// EM_ASYNC_JS implementation looks up `Module.workersPhpBridge[$method]`
-// and awaits its return value. This module is how we install that table.
-//
-// One install per PHP wasm Module is enough — the table persists across
-// `pib_refresh` calls (it lives on the JS Module object). We call
-// `installBridge` once at handler construction time, then individual
-// requests can mutate the table contents safely via `setBridgeMethods`.
+// The table persists across `pib_refresh` because it lives on the JS
+// Module object, so one install per wasm Module suffices.
 
 import type {PhpWeb} from "../wasm/PhpWeb.mjs";
 

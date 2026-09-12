@@ -124,7 +124,6 @@ describe("createPhpHandler (with mock ASSETS)", () => {
 	}, 30000);
 
 	it("forwards static-extension requests to ASSETS without invoking PHP", async () => {
-		// Replace ASSETS with one that returns a known body for static paths.
 		const trackedEnv = {
 			ASSETS: {
 				async fetch(req: Request | string | URL) {
@@ -370,8 +369,7 @@ describe("createPhpHandler (with mock ASSETS)", () => {
 				name: "app/index.php",
 				data:
 					"<?php\n" +
-					"// Route 1: set custom header + status + die\n" +
-					"// Route 2: just echo - must see NO trace of route 1\n" +
+					"// p=one sets a header + status then dies; p=two must see none of it.\n" +
 					"$p = $_GET['p'] ?? '';\n" +
 					"if ($p === 'one') {\n" +
 					"    header('X-Leak-Test: yes');\n" +
@@ -390,7 +388,7 @@ describe("createPhpHandler (with mock ASSETS)", () => {
 			entrypoint: "index.php",
 		});
 
-		// First request: pollute state.
+		// First request pollutes state; the second must not inherit it.
 		const r1 = await handler(
 			new Request("https://example.com/?p=one"),
 			env6,
@@ -400,7 +398,6 @@ describe("createPhpHandler (with mock ASSETS)", () => {
 		expect(r1.headers.get("X-Leak-Test")).toBe("yes");
 		expect(await r1.text()).toContain("one");
 
-		// Second request: must NOT inherit anything.
 		const r2 = await handler(
 			new Request("https://example.com/?p=two"),
 			env6,
@@ -410,8 +407,8 @@ describe("createPhpHandler (with mock ASSETS)", () => {
 		expect(r2.headers.get("X-Leak-Test")).toBeNull();
 		const body = await r2.text();
 		expect(body).toContain("two-status=200");
-		// PHP may inject Content-Type/X-Powered-By so headers_list() count varies,
-		// but X-Leak-Test must not be present. We rely on the header check above.
+		// PHP may inject Content-Type/X-Powered-By, so the header count
+		// varies; X-Leak-Test above is the strict check.
 	}, 60000);
 
 	it("bundled wasm has mbstring, gd, openssl, intl-free extension set", async () => {

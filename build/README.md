@@ -4,9 +4,10 @@ This directory holds the configuration and scripts used to compile a
 Cloudflare-Workers-compatible build of PHP-WASM from
 [seanmorris/php-wasm](https://github.com/seanmorris/php-wasm).
 
-The output of the build replaces `wasm/php-web.mjs` and `wasm/php-web.wasm`.
+The build stages artifacts into `packages/workers-php/src/wasm/*.staged`;
+`promote-wasm.sh` swaps them in as the canonical files.
 
-## Why we don't use the npm `php-wasm` package
+## Why not the npm `php-wasm` package
 
 The published `php-wasm@0.1.0` artifacts on npm are built with
 `MAIN_MODULE=1` (dynamic linking). That causes Emscripten to embed runtime
@@ -16,40 +17,39 @@ WebAssembly compilation calls (`new WebAssembly.Module(bytes)`,
 
 This build overrides the upstream defaults with `MAIN_MODULE=0` (static
 linking), eliminating all forbidden APIs while keeping `ASYNCIFY=1` for
-PHP feature parity. The Dockerfile is also pinned to EMSDK 3.1.43, the
-last version Sean's own bisect labels as Cloudflare-compatible.
+PHP feature parity.
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `build-php-wasm.sh` | Clones upstream, patches, runs `make web-mjs`, sanity-checks the output, stages all upstream-built files into `wasm/*.staged`. |
-| `promote-wasm.sh`   | After manual verification, moves the staged files into their canonical slots in `wasm/`, backing up the previous active files as `wasm/*.legacy`. |
+| `build-php-wasm.sh` | Clones upstream, patches, runs `make web-mjs`, sanity-checks the output, stages the artifacts as `packages/workers-php/src/wasm/*.staged`. |
+| `promote-wasm.sh`   | After manual verification, moves the staged files into their canonical slots, backing up the previous ones as `*.legacy`. |
 | `php-wasm.env`      | Build-flag overrides consumed by upstream's `Makefile` via its `.env` include. |
-| `pinned-commit.txt` | Upstream SHA we built against. Bump this to upgrade. |
+| `pinned-commit.txt` | Upstream SHA the build pins to. Bump this to upgrade. |
 
 ## Patches applied to the upstream checkout
 
 `build-php-wasm.sh` patches `emscripten-builder.dockerfile` in two places:
 
-1. **Pin EMSDK** to `3.1.43` (the last version Sean's bisect labels as
-   Cloudflare-compatible — see comments at the top of upstream's Dockerfile).
+1. **Pin EMSDK** to `3.1.74` (the newest version that links the full
+   extension set — see the EMSDK note below).
 2. **Remove the seanmorris/emscripten fork replacement.** Upstream replaces
    the stock EMSDK Emscripten with a fork from late 2024 that emits
-   `wasm-ld` flags (`--initial-heap`, `--table-base`) that the 2023-era
-   `wasm-ld` shipped in EMSDK 3.1.43 doesn't recognize.
+   `wasm-ld` flags (`--initial-heap`, `--table-base`) the pinned `wasm-ld`
+   doesn't recognize.
 3. **Inject corporate root CA** (if `SSL_CERT_FILE` etc. are set) so the
    container's HTTPS fetches work behind TLS-inspecting proxies like
    Cloudflare WARP zero-trust.
 
-## Files we replace / don't promote
+## Files replaced / not promoted
 
-The upstream build also produces `PhpWeb.mjs`, but we keep our own
-hand-written `wasm/PhpWeb.mjs`. Upstream's version does dynamic
+The upstream build also produces `PhpWeb.mjs`, but a hand-written
+`wasm/PhpWeb.mjs` is kept instead. Upstream's version does dynamic
 `import(\`./phpX.Y-web.mjs\`)` switch-cases per PHP version (esbuild can't
-bundle those) and calls `navigator.locks.request` which doesn't exist in
-the Cloudflare Workers runtime. Our replacement just imports the single
-`php-web.mjs` we ship and stubs the lock/transaction methods.
+bundle those) and calls `navigator.locks.request`, which doesn't exist in
+the Cloudflare Workers runtime. The replacement imports the single shipped
+`php-web.mjs` and stubs the lock/transaction methods.
 
 ## Requirements
 
@@ -61,17 +61,18 @@ the Cloudflare Workers runtime. Our replacement just imports the single
 ## Usage
 
 ```bash
-# Build everything from source into wasm/*.staged
+# Build everything from source into packages/workers-php/src/wasm/*.staged
 npm run build-wasm
 
 # Test if you want — the staged files don't yet replace the active ones.
 # (Easiest: change a *.staged filename or symlink temporarily.)
 
-# Promote: rename wasm/*.staged → wasm/*, backing up old ones as wasm/*.legacy
+# Promote: rename *.staged → the canonical names, keeping the old ones as
+# *.legacy
 npm run wasm-promote
 
 # When satisfied with the new files, clean up the legacy backups:
-rm wasm/*.legacy
+rm packages/workers-php/src/wasm/*.legacy
 ```
 
 ## Configuration knobs
@@ -85,7 +86,7 @@ Set as environment variables on the `npm run build-wasm` invocation:
 
 ### Note on EMSDK versions
 
-Sean's upstream Dockerfile comments label EMSDK 3.1.45+ as "Broken (cloudflare)",
+Upstream's Dockerfile comments label EMSDK 3.1.45+ as "Broken (cloudflare)",
 but that bisect targeted `MAIN_MODULE=1` builds — the breakage was the
 runtime `new WebAssembly.Module(bytes)` call paths Cloudflare Workers forbids,
 all of which are dead code when `MAIN_MODULE=0`.
@@ -137,7 +138,7 @@ runs a finishing `wasm-opt --all-features -Oz --converge` pass that
 shaves off another ~0.8 MB raw / ~60-250 KB gzipped depending on the
 extension set. (Squeezing size is no longer load-bearing — the Worker
 limit is 64 MiB uncompressed on all plans — but smaller wasm still
-parses/compiles faster at cold start, so we keep it.)
+parses/compiles faster at cold start, so the pass stays.)
 
 ## Upstream PRs (pending)
 
@@ -160,9 +161,9 @@ them yourself:
 
 ```bash
 # All three must be 0.
-grep -oE 'new WebAssembly\.Module\(' wasm/php-web.mjs | wc -l
-grep -c   'loadDylibs'                wasm/php-web.mjs
-grep -c   'dynamicLibraries'          wasm/php-web.mjs
+grep -oE 'new WebAssembly\.Module\(' packages/workers-php/src/wasm/php-web.mjs | wc -l
+grep -c   'loadDylibs'                packages/workers-php/src/wasm/php-web.mjs
+grep -c   'dynamicLibraries'          packages/workers-php/src/wasm/php-web.mjs
 ```
 
 ## Reproducibility

@@ -1,14 +1,12 @@
 <?php
-// Userland php:// stream wrapper that makes php://input return the raw
-// request body. The library writes the body to /tmp/workers-php-input
-// before each request; this wrapper exposes it.
+// Userland php:// stream wrapper. The library writes the request body to
+// /tmp/workers-php-input before each request; this wrapper serves it as
+// php://input.
 //
-// Why: PHP's stock php://input reads via the SAPI's read_post() hook,
-// but php-wasm's embed SAPI is the stock embed SAPI which doesn't
-// implement read_post for non-CLI input. So `file_get_contents('php://input')`
-// returns empty by default. We replace the `php` stream wrapper entirely
-// with this one; non-input php:// URIs are delegated back to the built-in
-// wrapper via stream_wrapper_restore() inside the open call.
+// The stock php://input reads via the SAPI's read_post() hook, which the
+// embed SAPI doesn't implement — so it returns empty by default. Other
+// php:// URIs are delegated back to the built-in wrapper inside
+// stream_open().
 
 namespace WorkersPHP;
 
@@ -29,10 +27,8 @@ final class InputStreamWrapper {
             return true;
         }
 
-        // Delegate every other php:// URI to the built-in wrapper.
-        // Trick: unregister ourselves, open with the original wrapper,
-        // then re-register. Single-threaded request handling makes this
-        // safe.
+        // Restore the built-in wrapper, open through it, then re-register
+        // this one. Safe because request handling is single-threaded.
         \stream_wrapper_restore('php');
         try {
             $this->delegate = @\fopen($path, $mode, ($options & STREAM_USE_PATH) !== 0);
@@ -60,7 +56,6 @@ final class InputStreamWrapper {
         if ($this->delegate) {
             return (int) \fwrite($this->delegate, $data);
         }
-        // php://input is read-only.
         return 0;
     }
 
