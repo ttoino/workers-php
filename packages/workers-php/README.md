@@ -1,5 +1,7 @@
 # workers-php
 
+[![test](https://github.com/ttoino/php-wasm-worker/actions/workflows/test.yml/badge.svg)](https://github.com/ttoino/php-wasm-worker/actions/workflows/test.yml)
+
 Run a PHP project on **Cloudflare Workers**, with the project files stored
 in the Workers **ASSETS** binding so they don't count against the
 [64 MiB uncompressed](https://developers.cloudflare.com/workers/platform/limits/#worker-size)
