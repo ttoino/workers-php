@@ -137,9 +137,6 @@ Working end-to-end (verified against `wrangler dev`):
 
 Known limitations (deferred):
 
-- **PUT / DELETE bodies** that read `$_POST` via `parse_str(file_get_contents('php://input'))`
-  see an empty body (the library's prelude doesn't populate `$_POST`
-  for those verbs yet).
 - **Outbound HTTP** from PHP is unavailable (the `curl` extension isn't
   compiled into the bundled wasm); the app doesn't need it.
 

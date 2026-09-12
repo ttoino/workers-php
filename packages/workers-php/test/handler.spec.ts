@@ -449,6 +449,69 @@ describe("createPhpHandler (with mock ASSETS)", () => {
 		expect(body).not.toContain("curl");
 	}, 60000);
 
+	it("populates $_POST and php://input for PUT urlencoded bodies", async () => {
+		const tar = buildTar([
+			{name: "app/", type: "dir"},
+			{
+				name: "app/index.php",
+				data:
+					"<?php\n" +
+					"header('Content-Type: text/plain');\n" +
+					"echo 'post=' . ($_POST['a'] ?? 'MISSING') . ';';\n" +
+					"echo 'input=' . file_get_contents('php://input');\n",
+			},
+		]);
+		const envPut = {ASSETS: makeMockAssets(new Uint8Array(gzipSync(tar)))};
+		const handler = createPhpHandler({
+			appRoot: "/persist/test-put-form",
+			docroot: ".",
+			entrypoint: "index.php",
+		});
+		const res = await handler(
+			new Request("https://example.com/", {
+				method: "PUT",
+				headers: {"Content-Type": "application/x-www-form-urlencoded"},
+				body: "a=b&c=d",
+			}),
+			envPut,
+			{waitUntil: () => {}, passThroughOnException: () => {}} as unknown as ExecutionContext,
+		);
+		expect(res.status).toBe(200);
+		const body = await res.text();
+		expect(body).toContain("post=b;");
+		expect(body).toContain("input=a=b&c=d");
+	}, 60000);
+
+	it("exposes DELETE bodies through php://input", async () => {
+		const tar = buildTar([
+			{name: "app/", type: "dir"},
+			{
+				name: "app/index.php",
+				data:
+					"<?php\n" +
+					"header('Content-Type: text/plain');\n" +
+					"echo 'len=' . strlen(file_get_contents('php://input'));\n",
+			},
+		]);
+		const envDel = {ASSETS: makeMockAssets(new Uint8Array(gzipSync(tar)))};
+		const handler = createPhpHandler({
+			appRoot: "/persist/test-delete",
+			docroot: ".",
+			entrypoint: "index.php",
+		});
+		const res = await handler(
+			new Request("https://example.com/", {
+				method: "DELETE",
+				headers: {"Content-Type": "text/plain"},
+				body: "some delete payload",
+			}),
+			envDel,
+			{waitUntil: () => {}, passThroughOnException: () => {}} as unknown as ExecutionContext,
+		);
+		expect(res.status).toBe(200);
+		expect(await res.text()).toContain("len=19");
+	}, 60000);
+
 	it("returns 413 when the request body exceeds maxBodyBytes", async () => {
 		const handler = createPhpHandler({
 			appRoot: "/persist/test-large",
