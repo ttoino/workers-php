@@ -1,6 +1,6 @@
 {
   "name": "workers-php",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Run a PHP project on Cloudflare Workers, with the project served from the Workers ASSETS binding so it doesn't count against the Worker bundle size cap.",
   "type": "module",
   "main": "./src/index.ts",
@@ -15,7 +15,9 @@
   "files": [
     "bin",
     "src",
-    "README.md"
+    "php",
+    "README.md",
+    "LICENSE"
   ],
   "license": "Apache-2.0",
   "keywords": [
@@ -25,5 +27,12 @@
     "wasm",
     "webassembly",
     "laravel"
-  ]
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ttoino/php-wasm-worker.git",
+    "directory": "packages/workers-php"
+  },
+  "homepage": "https://github.com/ttoino/php-wasm-worker#readme",
+  "bugs": "https://github.com/ttoino/php-wasm-worker/issues"
 }
