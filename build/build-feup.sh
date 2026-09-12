@@ -17,7 +17,10 @@
 #      the right bytes (R2 upload or ASSETS default.svg).
 #   6. Patch cart/index.php to add the missing require_once for
 #      lib/page.php (upstream bug; surfaces only as a 500 right now).
-#   7. Copy the project's default*.svg image-folder placeholders so a
+#   7. Patch database/models/query.php's AggregatorClause so an all-null
+#      clause list emits a neutral boolean instead of "()" (upstream bug;
+#      SQLite rejects empty parens — surfaced as /search/?q=... → 500).
+#   8. Copy the project's default*.svg image-folder placeholders so a
 #      single `default.svg` exists in every <type>/ folder — staticRoutes
 #      missRewrite rewrites <id>.webp → default.svg uniformly.
 #
@@ -187,7 +190,41 @@ PYEOF
 	ok "cart/index.php patched"
 fi
 
-# ---------- 7. Normalise default-image filenames ----------
+# ---------- 7. Patch AggregatorClause (empty clause list -> neutral boolean) ----------
+
+readonly QUERY_FILE="${PROJECT_DIR}/database/models/query.php"
+[[ -f "${QUERY_FILE}" ]] || fail "Missing ${QUERY_FILE}"
+
+if grep -qF "// workers-php: an all-null clause list" "${QUERY_FILE}"; then
+	ok "query.php already patched"
+else
+	log "Patching ${QUERY_FILE} (AggregatorClause: empty list -> 1=1 / 1=0)"
+	python3 - "${QUERY_FILE}" <<'PYEOF'
+import sys, pathlib
+p = pathlib.Path(sys.argv[1])
+src = p.read_text()
+# Upstream builds "()" when every sub-clause is null (e.g. /search/ with no
+# min/max score or price params) — SQLite: near ")": syntax error. Emit the
+# aggregation's neutral element instead so the clause is a no-op.
+needle = '            $this->queryString = sprintf("(%s)", implode(sprintf(" %s ", static::getAggregationType()->value), $attrs));'
+replacement = (
+    "            // workers-php: an all-null clause list must not emit \"()\" —\n"
+    "            // SQLite rejects empty parens. Use the aggregation's neutral\n"
+    "            // element so the clause degenerates to a no-op.\n"
+    "            if (count($attrs) === 0)\n"
+    "                $attrs[] = static::getAggregationType() === AggregationType::AND ? '1=1' : '1=0';\n"
+    "\n"
+    + needle
+)
+if needle not in src:
+    raise SystemExit("could not find AggregatorClause queryString assignment in query.php")
+src = src.replace(needle, replacement, 1)
+p.write_text(src)
+PYEOF
+	ok "query.php patched"
+fi
+
+# ---------- 8. Normalise default-image filenames ----------
 #
 # The project ships default<N>.svg files for /assets/pictures/user/ and /dish/
 # (varying), and a single default.svg for /menu/ and /restaurant/. Our
