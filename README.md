@@ -179,9 +179,13 @@ npm test                   # vitest, runs inside the @cloudflare/vitest-pool-wor
 
 ## What's where
 
-- **Worker bundle size**: ~9.5 MB gzipped (the PHP wasm dominates). Fits the
-  Workers Paid plan's 10 MB cap with ~260 KB headroom; **does not fit** the
-  free plan.
+- **Worker bundle size**: ~33 MB uncompressed (~10.5 MB gzipped; the PHP wasm
+  dominates). Since the
+  [2026-09-04 limit change](https://developers.cloudflare.com/changelog/post/2026-09-04-increased-worker-size-limit/),
+  Cloudflare only checks uncompressed size — **64 MiB on all plans**, so this
+  fits everywhere (including Workers Free) with ~32 MiB of headroom. Note the
+  Free plan's 10 ms CPU limit still makes PHP impractical there (a warm
+  vanilla request uses ~20 ms CPU); Paid remains the realistic plan.
 - **ASSETS bundle**: a single `app.tar.gz` containing the PHP project, ~5 KB
   for the demo. ASSETS storage is free.
 - **PHP version**: 8.5.2.

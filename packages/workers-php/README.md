@@ -2,8 +2,8 @@
 
 Run a PHP project on **Cloudflare Workers**, with the project files stored
 in the Workers **ASSETS** binding so they don't count against the
-[3 MB free / 10 MB paid](https://developers.cloudflare.com/workers/platform/limits/#worker-size)
-Worker bundle size cap.
+[64 MiB uncompressed](https://developers.cloudflare.com/workers/platform/limits/#worker-size)
+Worker bundle size limit (same on Free and Paid since 2026-09-04).
 
 Backed by a [seanmorris/php-wasm](https://github.com/seanmorris/php-wasm)
 build compiled with `MAIN_MODULE=0 ASYNCIFY=1` so it works inside the
@@ -12,10 +12,14 @@ Cloudflare Workers runtime (which forbids runtime WebAssembly compilation).
 ## Status
 
 - **PHP 8.5.2** runtime.
-- **Workers Paid plan only.** The PHP wasm itself is ~9.5 MB gzipped,
-  which exceeds the free plan's 3 MB Worker cap and leaves a tight
-  ~260 KB headroom under the Paid 10 MB cap. (The PHP project files
-  don't contribute — they're served as ASSETS, which is free.)
+- **Works on every Workers plan.** The bundle is ~33 MB uncompressed
+  (~10.5 MB gzipped) and Cloudflare's
+  [64 MiB uncompressed limit](https://developers.cloudflare.com/changelog/post/2026-09-04-increased-worker-size-limit/)
+  applies identically to Free and Paid — leaving ~32 MiB of headroom. The
+  Free plan's 10 ms CPU-time limit is the practical constraint there
+  (see [Limitations](#limitations)); Paid is the realistic plan for real
+  apps. (The PHP project files don't contribute to the bundle — they're
+  served as ASSETS, which is free.)
 - Single-tarball mount mode. Per-file lazy mount is on the roadmap.
 - Tested with Laravel 13 and basic vanilla PHP. Should work for any PHP
   app whose extension requirements are satisfied (see below).
@@ -309,7 +313,7 @@ before `session_start()`. The auto-install is only triggered when
 
 ```
        ┌─────────────────────────────────────────────────────┐
-       │  Cloudflare Worker (your code, < 10 MB gz)          │
+       │  Cloudflare Worker (your code, < 64 MiB uncompressed)│
        │                                                     │
        │  ┌──────────────────────────────────────────────┐   │
        │  │ workers-php library                          │   │
@@ -349,8 +353,13 @@ before `session_start()`. The auto-install is only triggered when
 
 ## Limitations
 
-- **Workers Free plan is unsupported.** The PHP wasm alone is ~9.5 MB
-  gz, exceeding the free plan's 3 MB Worker bundle cap.
+- **Workers Free plan: fits, but impractical.** Bundle size is fine on
+  every plan (~33 MB uncompressed vs the 64 MiB limit that applies to
+  Free and Paid alike since 2026-09-04). The constraint is CPU time:
+  Free allows 10 ms per request, while a warm vanilla PHP request uses
+  ~20 ms CPU — so most real traffic would hit
+  [Error 1102](https://developers.cloudflare.com/workers/observability/errors/).
+  Use the Paid plan (5 min CPU).
 - **Persistent storage.** The wasm filesystem is RAM-only and is discarded
   when the isolate is reclaimed. SQLite/file writes work between requests
   in the same isolate, but disappear when the isolate dies. For real
@@ -362,28 +371,37 @@ before `session_start()`. The auto-install is only triggered when
 - **Cold start.** Each new isolate downloads + extracts the tarball on
   the first request (~50–300 ms depending on app size). Warm requests
   are fast (~20 ms for vanilla PHP, ~200 ms for Laravel).
-- **CPU time.** Default 30 s CPU per request on the paid plan
-  (configurable up to 5 min). Laravel boot uses ~200 ms CPU per warm
-  request; comfortable headroom.
+- **CPU time.** Paid allows 5 min CPU per request (30 s default,
+  configurable); Free allows 10 ms. Laravel boot uses ~200 ms CPU per
+  warm request — comfortable on Paid, impossible on Free.
 - **Memory.** Workers' 128 MB isolate cap. The mounted tar plus the wasm
   heap means projects up to ~50 MB unpacked are comfortable; larger may OOM.
-- **Compiled-in PHP extensions** (as of the bundled wasm):
-  bcmath, calendar, ctype, date, dom, exif, fileinfo, filter, gd, hash,
-  iconv, json, libxml, openssl, pcre, pdo, pdo_sqlite, phar, random,
-  reflection, session, simplexml, spl, sqlite3, standard, tidy,
-  tokenizer, xml, xmlreader, xmlwriter, yaml, zip, zlib.
-- **Missing extensions:** `mbstring` (Laravel falls back to the
-  `symfony/polyfill-mbstring` shim it ships with), `curl`, `intl`.
-  Re-enable by editing `build/php-wasm.env` and rebuilding. Disabling
-  GD + image libs (`WITH_GD=0`, etc.) frees ~1.7 MB raw / ~250 KB gzip
-  if you don't need server-side image manipulation.
+- **Compiled-in PHP extensions** (verified against the bundled wasm at
+  runtime; enforced by a test): bcmath, calendar, ctype, date, dom, exif,
+  fileinfo, filter, gd, hash, iconv, json, libxml, mbstring, openssl,
+  pcre, pdo, pdo_sqlite, phar, random, reflection, session, simplexml,
+  spl, sqlite3, standard, tidy, tokenizer, xml, xmlreader, xmlwriter,
+  yaml, Zend OPcache, zip, zlib.
+- **Missing extensions:** `curl` (no build support in upstream php-wasm)
+  and `intl` (buildable — see below). Laravel needs neither: it ships
+  `symfony/polyfill-*` shims and uses its own HTTP client.
+- **About `intl`:** `WITH_INTL=static` compiles ICU 72.1 into the wasm
+  (+~15 MB uncompressed — affordable under the 64 MiB limit), but it also
+  emits an `icudt72l.dat` Emscripten *preload data file* that the runtime
+  would have to fetch and mount next to `php-web.wasm`. That plumbing
+  doesn't exist yet, so intl stays `WITH_INTL=0` in `build/php-wasm.env`.
+  The GD/image stack is enabled; disabling it (`WITH_GD=0`, etc.) shaves
+  ~1.7 MB raw if you truly don't need server-side image manipulation —
+  but with ~32 MiB of headroom this is no longer a trade-off worth making
+  for size reasons alone.
 
 ## Future work
 
-- D1 / KV / R2 PDO adapters so PHP code can natively query Cloudflare
-  storage primitives.
 - Per-file lazy mount mode for larger codebases.
-- mbstring / curl / intl in the bundled wasm.
+- `intl` runtime plumbing (preload data file loading; the extension
+  itself already compiles — see Limitations).
+- `curl` (requires upstream php-wasm support; outbound HTTP is otherwise
+  JS-side via bindings).
 - Multiple PHP versions selectable at build time.
 
 ## License

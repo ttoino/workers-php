@@ -120,10 +120,24 @@ To change the extension set (`WITH_BCMATH`, `WITH_LIBZIP`, etc.), edit
 upstream (e.g. `--enable-fileinfo`) are injected by `build-php-wasm.sh`
 itself, which patches the upstream Makefile right after the env include.
 
+Two upstream quirks the injected flags work around:
+
+- **fileinfo** has no `WITH_*` knob at all → `--enable-fileinfo`.
+- **mbstring**: upstream `packages/mbstring/static.mak` appends
+  `--with-mbstring`, which PHP 8.5's configure does **not** recognise
+  (`configure: WARNING: unrecognized options: ... --with-mbstring`), so
+  the extension is silently skipped even with `WITH_MBSTRING=static`.
+  The correct flag is `--enable-mbstring` (injected by the build script);
+  oniguruma is then found via pkg-config from `/src/lib`, which
+  `WITH_ONIGURUMA=static` builds and installs. Verify with
+  `get_loaded_extensions()` (there is a test asserting mbstring loads).
+
 After the upstream `make web-mjs` produces the wasm, `build-php-wasm.sh`
 runs a finishing `wasm-opt --all-features -Oz --converge` pass that
 shaves off another ~0.8 MB raw / ~60-250 KB gzipped depending on the
-extension set.
+extension set. (Squeezing size is no longer load-bearing — the Worker
+limit is 64 MiB uncompressed on all plans — but smaller wasm still
+parses/compiles faster at cold start, so we keep it.)
 
 ## Verifying a build is Workers-compatible
 
