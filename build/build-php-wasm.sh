@@ -242,12 +242,18 @@ src = p.read_text()
 # `-include ${ENV_FILE}.${PHP_VERSION}` line which sits at the end of that block.
 marker = "-include ${ENV_FILE}.${PHP_VERSION}\n"
 inject = (
-	"\n"
-	"# php-wasm-worker: extra configure flags (no upstream knob for fileinfo)\n"
-	"CONFIGURE_FLAGS+= --enable-fileinfo\n"
-	"# php-wasm-worker: enable bundled extensions\n"
-	"CONFIGURE_FLAGS+= --enable-workers-php-bridge\n"
-)
+		"\n"
+		"# php-wasm-worker: extra configure flags (no upstream knob for fileinfo)\n"
+		"CONFIGURE_FLAGS+= --enable-fileinfo\n"
+		"# php-wasm-worker: enable bundled extensions\n"
+		"CONFIGURE_FLAGS+= --enable-workers-php-bridge\n"
+		"# php-wasm-worker: upstream's mbstring static.mak passes --with-mbstring,\n"
+		"# which PHP 8.5 configure does not recognise (warning: unrecognized\n"
+		"# options) — the extension is silently skipped. The correct flag is\n"
+		"# --enable-mbstring; oniguruma is then found via pkg-config from\n"
+		"# /src/lib (WITH_ONIGURUMA=static builds + installs libonig there).\n"
+		"CONFIGURE_FLAGS+= --enable-mbstring\n"
+	)
 if marker not in src:
 	raise SystemExit(f"marker not found in Makefile: {marker!r}")
 new = src.replace(marker, marker + inject, 1)

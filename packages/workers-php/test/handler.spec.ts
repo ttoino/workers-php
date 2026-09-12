@@ -414,6 +414,41 @@ describe("createPhpHandler (with mock ASSETS)", () => {
 		// but X-Leak-Test must not be present. We rely on the header check above.
 	}, 60000);
 
+	it("bundled wasm has mbstring, gd, openssl, intl-free extension set", async () => {
+		const tar = buildTar([
+			{name: "app/", type: "dir"},
+			{
+				name: "app/index.php",
+				data:
+					"<?php\n" +
+					"header('Content-Type: text/plain');\n" +
+					"$e = get_loaded_extensions();\n" +
+					"sort($e);\n" +
+					"echo implode(',', $e);\n",
+			},
+		]);
+		const envExt = {ASSETS: makeMockAssets(new Uint8Array(gzipSync(tar)))};
+		const handler = createPhpHandler({
+			appRoot: "/persist/test-exts",
+			docroot: ".",
+			entrypoint: "index.php",
+		});
+		const res = await handler(
+			new Request("https://example.com/"),
+			envExt,
+			{waitUntil: () => {}, passThroughOnException: () => {}} as unknown as ExecutionContext,
+		);
+		expect(res.status).toBe(200);
+		const body = await res.text();
+		// The README's extension list is generated from this set — keep them
+		// in sync when build/php-wasm.env changes.
+		for (const ext of ["mbstring", "gd", "openssl", "yaml", "fileinfo", "zip"]) {
+			expect(body, `expected extension ${ext}`).toContain(ext);
+		}
+		expect(body).not.toContain("intl");
+		expect(body).not.toContain("curl");
+	}, 60000);
+
 	it("returns 413 when the request body exceeds maxBodyBytes", async () => {
 		const handler = createPhpHandler({
 			appRoot: "/persist/test-large",
