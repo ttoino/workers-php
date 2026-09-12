@@ -35,7 +35,7 @@
 		{
 			"binding": "DB",
 			"database_name": "workers-php-laravel-db",
-			"database_id": "00000000-0000-0000-0000-000000000000"
+			"database_id": "5ec04354-678b-4bfc-813f-c6d2d57895d0"
 		}
 	],
 	"rules": [
