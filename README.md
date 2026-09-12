@@ -137,8 +137,8 @@ Working end-to-end (verified against `wrangler dev`):
 
 Known limitations (deferred):
 
-- **Outbound HTTP** from PHP is unavailable (the `curl` extension isn't
-  compiled into the bundled wasm); the app doesn't need it.
+- **Outbound HTTP** from PHP goes through the library's curl polyfill
+  (userland `curl_*` over the Worker's `fetch()`); the app doesn't need it.
 
 The build steps live in `build/`:
 

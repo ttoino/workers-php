@@ -253,6 +253,49 @@ export const makeBindingDispatch = (
 		};
 	}
 
+	// Outbound HTTP backing the userland curl_* polyfill. Always available:
+	// unlike the storage methods above it touches no env bindings, just the
+	// global fetch(). Bodies cross the bridge base64-encoded so binary
+	// payloads survive. fetch() throws TypeError on network-level failures
+	// (DNS, TCP, TLS) — the bridge envelope turns that into a
+	// \WorkersPHP\BridgeException which the polyfill maps to
+	// CURLE_COULDNT_CONNECT.
+	out.http_fetch = async (
+		url: string,
+		opts: {
+			method?: string;
+			headers?: Record<string, string>;
+			bodyB64?: string | null;
+			redirect?: "follow" | "manual";
+			timeoutSeconds?: number;
+		},
+	) => {
+		const init: RequestInit = {
+			method: opts.method ?? "GET",
+			redirect: opts.redirect === "manual" ? "manual" : "follow",
+		};
+		if (opts.headers && Object.keys(opts.headers).length > 0) {
+			init.headers = opts.headers;
+		}
+		if (opts.bodyB64) {
+			init.body = base64ToBytes(opts.bodyB64);
+		}
+		if (opts.timeoutSeconds && opts.timeoutSeconds > 0) {
+			init.signal = AbortSignal.timeout(opts.timeoutSeconds * 1000);
+		}
+		const res = await fetch(url, init);
+		const headers: Record<string, string> = {};
+		res.headers.forEach((value, key) => {
+			headers[key] = value;
+		});
+		return {
+			status: res.status,
+			url: res.url,
+			headers,
+			bodyB64: bytesToBase64(await res.arrayBuffer()),
+		};
+	};
+
 	return out;
 };
 

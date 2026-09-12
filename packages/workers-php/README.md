@@ -363,11 +363,20 @@ before `session_start()`. The auto-install is only triggered when
 - **Persistent storage.** The wasm filesystem is RAM-only and is discarded
   when the isolate is reclaimed. SQLite/file writes work between requests
   in the same isolate, but disappear when the isolate dies. For real
-  persistence, use Cloudflare D1/R2/KV from the Worker side (bridging
-  those into PHP is on the roadmap).
-- **No outbound HTTP from PHP** (the `curl` extension isn't built). Make
-  outbound requests from JS and pass results through `envOverrides` or
-  query strings if you need to call external APIs.
+  persistence use the built-in D1/R2/KV bridging (`$env->DB`, `$env->IMAGES`,
+  `$env->KV` — see above).
+- **Outbound HTTP works via a curl polyfill, not the real extension.**
+  The bundled wasm has no `ext-curl` (upstream php-wasm has no build
+  recipe), but the runtime defines global `curl_*` functions backed by
+  the Worker's `fetch()` through the bridge — covering
+  `curl_init/setopt(_array)/exec/getinfo/errno/error/close` with
+  `CURLOPT_URL`, `RETURNTRANSFER`, `POST`, `POSTFIELDS`, `CUSTOMREQUEST`,
+  `NOBODY`, `HTTPHEADER`, `USERAGENT`, `FOLLOWLOCATION`, `TIMEOUT`,
+  `HEADER`, plus the common `CURLINFO_*` values. That's enough for
+  typical SDK call sites (Guzzle, payment SDKs, WordPress's curl
+  transport). Caveats: full body buffered (no streaming), no multi
+  handles, TLS options are no-ops (fetch always verifies), and each call
+  consumes a Workers subrequest (50/request on Free, 10,000 on Paid).
 - **Cold start.** Each new isolate downloads + extracts the tarball on
   the first request (~50–300 ms depending on app size). Warm requests
   are fast (~20 ms for vanilla PHP, ~200 ms for Laravel).
@@ -382,9 +391,10 @@ before `session_start()`. The auto-install is only triggered when
   pcre, pdo, pdo_sqlite, phar, random, reflection, session, simplexml,
   spl, sqlite3, standard, tidy, tokenizer, xml, xmlreader, xmlwriter,
   yaml, Zend OPcache, zip, zlib.
-- **Missing extensions:** `curl` (no build support in upstream php-wasm)
-  and `intl` (buildable — see below). Laravel needs neither: it ships
-  `symfony/polyfill-*` shims and uses its own HTTP client.
+- **Missing extensions:** `curl` (no build support in upstream php-wasm;
+  covered by the userland polyfill described above) and `intl`
+  (buildable — see below). Laravel needs neither: it ships
+  `symfony/polyfill-*` shims and its HTTP client works over the polyfill.
 - **About `intl`:** `WITH_INTL=static` compiles ICU 72.1 into the wasm
   (+~15 MB uncompressed — affordable under the 64 MiB limit), but it also
   emits an `icudt72l.dat` Emscripten *preload data file* that the runtime
@@ -400,8 +410,8 @@ before `session_start()`. The auto-install is only triggered when
 - Per-file lazy mount mode for larger codebases.
 - `intl` runtime plumbing (preload data file loading; the extension
   itself already compiles — see Limitations).
-- `curl` (requires upstream php-wasm support; outbound HTTP is otherwise
-  JS-side via bindings).
+- Real `ext-curl` (requires upstream php-wasm support; the userland
+  polyfill covers the common API meanwhile).
 - Multiple PHP versions selectable at build time.
 
 ## License

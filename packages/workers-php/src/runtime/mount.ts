@@ -4,6 +4,7 @@
 import {PhpWeb} from "../wasm/PhpWeb.mjs";
 import inputWrapperSource from "../../php/input-wrapper.php";
 import libSource from "../../php/lib.php";
+import curlPolyfillSource from "../../php/curl-polyfill.php";
 import {gunzip, iterTar} from "./tar";
 import {ensureDir, type PhpBinary, type PhpFS} from "./php-instance";
 
@@ -15,6 +16,15 @@ import {ensureDir, type PhpBinary, type PhpFS} from "./php-instance";
  * KVNamespace, D1PDO, …) used by the bindings DX.
  */
 export const RUNTIME_LIBRARY_PATH = "/persist/workers-php-runtime.php";
+
+/**
+ * The curl polyfill ships as its own file rather than being concatenated
+ * into the runtime bundle above: it declares global functions (curl_init,
+ * curl_exec, …), which requires a bracketed `namespace { … }` block —
+ * and PHP forbids mixing bracketed and unbracketed namespace styles in a
+ * single file. The runtime bundle `require_once`s this path at the end.
+ */
+export const RUNTIME_CURL_POLYFILL_PATH = "/persist/workers-php-curl-polyfill.php";
 
 export interface MountOptions {
 	/** Absolute path on the wasm FS where the app should land. */
@@ -149,8 +159,15 @@ export const ensureMounted = (
 		const inputWrapperBody = inputWrapperSource.replace(/^<\?php\s*/, "");
 		binary.FS.writeFile(
 			RUNTIME_LIBRARY_PATH,
-			libSource + "\n\n" + inputWrapperBody,
+			libSource +
+				"\n\n" +
+				inputWrapperBody +
+				"\n\n" +
+				// The curl polyfill lives in its own file (see the const's
+				// docblock for why); pull it in at the end of the bundle.
+				`require_once '${RUNTIME_CURL_POLYFILL_PATH}';\n`,
 		);
+		binary.FS.writeFile(RUNTIME_CURL_POLYFILL_PATH, curlPolyfillSource);
 
 		log(
 			`mount: ${files} files, ${dirs} dirs at ${opts.appRoot} in ${Date.now() - t0}ms`,
