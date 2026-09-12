@@ -139,6 +139,20 @@ extension set. (Squeezing size is no longer load-bearing — the Worker
 limit is 64 MiB uncompressed on all plans — but smaller wasm still
 parses/compiles faster at cold start, so we keep it.)
 
+## Upstream PRs (pending)
+
+Two of our local patches are upstream bugs/improvements, prepared as
+branches on `ttoino/php-wasm` (PRs to seanmorris/php-wasm open on
+request):
+
+- `fix-static-mbstring-flag` — the `--enable-mbstring` fix above. When
+  merged and the pin bumps past it, drop the injected
+  `CONFIGURE_FLAGS+= --enable-mbstring` from `build-php-wasm.sh`.
+- `pib-run-shutdown-callbacks` — the `build/patches/pib.c` shutdown
+  patch (comments de-branded for upstream; code identical). When merged
+  and the pin bumps past it, delete `build/patches/pib.c` and the
+  overlay step in `build-php-wasm.sh`.
+
 ## Verifying a build is Workers-compatible
 
 The build script runs these automatically; if you ever build by hand, run
