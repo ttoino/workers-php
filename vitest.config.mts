@@ -1,6 +1,13 @@
 import { defineWorkersConfig } from "@cloudflare/vitest-pool-workers/config";
 
 export default defineWorkersConfig({
+	server: {
+		watch: {
+			// Composer-installed PHP vendor trees (examples/laravel/vendor
+			// has thousands of files); watching them stalls pool startup.
+			ignored: ["**/vendor/**"],
+		},
+	},
 	test: {
 		// Default test discovery; explicitly scope to our package and the demo
 		// so vitest doesn't pick up test files from .build-cache/php-wasm/.
@@ -10,6 +17,9 @@ export default defineWorkersConfig({
 			"**/.build-cache/**",
 			"**/dist/**",
 		],
+		// Composer-installed PHP vendor trees (examples/laravel/vendor has
+		// thousands of files); watching them stalls pool startup.
+		watchExclude: ["**/vendor/**"],
 		poolOptions: {
 			workers: {
 				wrangler: { configPath: "./wrangler.jsonc" },

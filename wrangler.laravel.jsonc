@@ -1,0 +1,44 @@
+/**
+ * Wrangler config for the Laravel example (examples/laravel).
+ *
+ * Use with: `npm run dev:laravel` or `npm run deploy:laravel`.
+ *
+ * The database is plain SQLite SQL over Laravel's custom `d1` driver.
+ * Before first deploy, run:
+ *
+ *     wrangler d1 create workers-php-laravel-db
+ *     wrangler d1 execute workers-php-laravel-db --config wrangler.laravel.jsonc --remote --file=examples/laravel/database/schema.sql
+ *
+ * Then paste the resulting database_id into the placeholder below.
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "workers-php-laravel",
+	"main": "src/laravel-index.ts",
+	"compatibility_date": "2026-05-26",
+	"observability": {
+		"enabled": true
+	},
+	"upload_source_maps": true,
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"assets": {
+		"directory": "./dist-laravel",
+		"binding": "ASSETS",
+		"run_worker_first": true
+	},
+	"vars": {
+		"APP_ENV": "production"
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "workers-php-laravel-db",
+			"database_id": "00000000-0000-0000-0000-000000000000"
+		}
+	],
+	"rules": [
+		{ "type": "Text", "globs": ["**/*.php"], "fallthrough": true }
+	]
+}
