@@ -85,12 +85,16 @@ interface D1MockStmt {
 const makeMockD1 = (rows: Record<string, unknown>[]) => {
 	let nextRowId = 100;
 	const isSelectSQL = (sql: string) => /^\s*select\b/i.test(sql);
+	const captured = {sql: [] as string[], binds: [] as unknown[][]};
 	return {
+		captured,
 		prepare(sql: string) {
+			captured.sql.push(sql);
 			let bound: unknown[] = [];
 			const stmt: D1MockStmt = {
 				bind(...v) {
 					bound = v;
+					captured.binds.push(v);
 					return stmt;
 				},
 				async all() {
@@ -342,6 +346,48 @@ echo json_encode(['row' => $row, 'last_id' => $id]);
 		expect(json.row.id).toBe(1);
 		expect(json.row.n).toBe("first-row");
 		expect(parseInt(json.last_id, 10)).toBeGreaterThan(0);
+	}, 30000);
+
+	it("folds bindValue into the next execute (the PDO flow Laravel uses)", async () => {
+		const phpCode = `<?php
+header('Content-Type: application/json');
+
+$pdo = new \\WorkersPHP\\D1PDO($env->DB);
+$pdo->setAttribute(\\PDO::ATTR_ERRMODE, \\PDO::ERRMODE_EXCEPTION);
+
+$stmt = $pdo->prepare('INSERT INTO X (n) VALUES (?)');
+$stmt->bindValue(1, 'positional');
+$stmt->execute();
+
+$stmt = $pdo->prepare('INSERT INTO X (n) VALUES (:n)');
+$stmt->bindValue(':n', 'named');
+$stmt->execute();
+
+echo json_encode(['ok' => true]);
+`;
+		const tar = buildTar([
+			{name: "app/", type: "dir"},
+			{name: "app/index.php", data: phpCode},
+		]);
+		const d1 = makeMockD1([]);
+		const env = {
+			ASSETS: makeMockAssets(new Uint8Array(gzipSync(tar))),
+			DB: d1,
+		};
+		const handler = createPhpHandler({
+			appRoot: "/persist/pdo-bindvalue-test",
+			docroot: ".",
+			entrypoint: "index.php",
+			bindings: {DB: "d1"},
+		});
+
+		const res = await handler(new Request("https://example.com/"), env, {
+			waitUntil: () => {},
+			passThroughOnException: () => {},
+		} as unknown as ExecutionContext);
+		expect(res.status).toBe(200);
+		// Both binds reach the D1 statement in placeholder order.
+		expect(d1.captured.binds).toEqual([["positional"], ["named"]]);
 	}, 30000);
 
 	it("staticRoutes missRewrite rewrites the path on R2 miss before ASSETS fallback", async () => {

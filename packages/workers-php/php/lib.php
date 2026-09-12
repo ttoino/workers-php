@@ -348,6 +348,10 @@ if (!class_exists(__NAMESPACE__ . '\\Env')) {
 
         public function execute(?array $params = null): bool {
             try {
+                if ($params === null && $this->pendingBindings) {
+                    $params = $this->pendingBindings;
+                }
+                $this->pendingBindings = [];
                 if ($params !== null) {
                     $this->stmt = $this->stmt->execute($params);
                 }
