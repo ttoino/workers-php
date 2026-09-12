@@ -8,6 +8,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -28,4 +29,7 @@ jobs:
         run: npm run build-php
 
       - name: tests
-        run: npm test
+        # Explicit `vitest run` (npm test alone enters watch-mode semantics
+        # in some environments) + per-test verbose output so a stall is
+        # visible in the log.
+        run: npx vitest run --reporter=verbose
