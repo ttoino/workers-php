@@ -13,6 +13,11 @@ export default defineWorkersConfig({
 		poolOptions: {
 			workers: {
 				wrangler: { configPath: "./wrangler.jsonc" },
+				// CI runners die (job canceled) when the wasm-heavy spec
+				// files spin up workerd + compile the 33 MB php-web.wasm in
+				// parallel. Serialize them on CI only; local runs stay
+				// parallel.
+				...(process.env.CI ? { singleWorker: true } : {}),
 			},
 		},
 	},
