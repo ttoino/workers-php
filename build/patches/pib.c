@@ -192,23 +192,12 @@ char *EMSCRIPTEN_KEEPALIVE pib_exec(char *code)
  * Code MUST start with a PHP tag.
  * Async.
  *
- * workers-php patch: after the user code returns (normally, via thrown
- * exception, or via exit()/die() bailout), explicitly run
- * php_request_shutdown + php_request_startup. This forces:
- *   * register_shutdown_function callbacks to fire
- *   * __destruct methods to run
- *   * php_output_end_all to flush ob_start callbacks (which is what
- *     captures the response status/headers/body)
- *   * session_write_close and other RSHUTDOWN hooks to run
- *
- * Without this, the upstream pib_run leaves the request "open" — none
- * of the above runs until the NEXT pib_refresh, which is too late
- * for the JS handler to observe the current response.
- *
- * After php_request_shutdown we call php_request_startup so the next
- * pib_run (or pib_exec) starts in a clean active-request state. This
- * also keeps pib_refresh/pib_destroy semantics intact (php_embed_shutdown
- * still wraps a final php_request_shutdown).
+ * workers-php patch: also runs request-shutdown work after the script:
+ * shutdown functions, then output buffers (what captures
+ * status/headers/body for JS). Covers normal return, thrown
+ * exceptions, and exit()/die() bailouts. Stock behavior defers this to
+ * the next pib_refresh, too late for the JS side to observe the
+ * current response.
 */
 int EMSCRIPTEN_KEEPALIVE pib_run(char *code)
 {
@@ -246,17 +235,17 @@ int EMSCRIPTEN_KEEPALIVE pib_run(char *code)
 
 	// workers-php: force ob callbacks to fire on every exit path.
 	//
-	// die()/exit() leaves a dangling "graceful exit" exception in
-	// EG(exception), and any userland code after it (ob callbacks,
-	// shutdown functions) short-circuits at the first opcode. Clear it so
-	// they can run; real exceptions were already reported above.
+	// die()/exit() leaves a graceful-exit exception dangling in
+	// EG(exception); userland callbacks (shutdown functions, ob handlers)
+	// short-circuit at their first opcode while it is pending. Real
+	// exceptions were already reported by zend_exception_error above.
 	if (EG(exception)) {
 		zend_clear_exception();
 	}
 
-	// Mirror php_request_shutdown's ordering: shutdown functions, then
-	// output buffers (__destructors are skipped — too risky post-bailout).
-	// Each in its own zend_try since any can re-bailout.
+	// php_request_shutdown ordering: shutdown functions, then output
+	// buffers. Each in its own zend_try; either can re-bailout and the
+	// rest must still run.
 	zend_try
 	{
 		if (PG(modules_activated)) {
