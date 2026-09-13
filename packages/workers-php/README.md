@@ -23,8 +23,9 @@ Cloudflare Workers runtime (which forbids runtime WebAssembly compilation).
   apps. (The PHP project files don't contribute to the bundle — they're
   served as ASSETS, which is free.)
 - Single-tarball mount mode. Per-file lazy mount is on the roadmap.
-- Tested with Laravel 13 and basic vanilla PHP. Should work for any PHP
-  app whose extension requirements are satisfied (see below).
+- Tested with Laravel 13, Slim 4, Symfony 7, and basic vanilla PHP.
+  Should work for any PHP app whose extension requirements are
+  satisfied (see below).
 
 ## Install
 
@@ -334,6 +335,30 @@ except for config. What makes it fit:
   runs `route:cache`; `config:cache` does not apply — it freezes
   absolute build-time paths (view.paths, storage dirs) that don't
   exist in the worker.
+
+## Recipe: Slim and Symfony
+
+`examples/slim/` (Slim 4) and `examples/symfony/` (Symfony 7 skeleton)
+serve the same D1-backed counter with no framework shims at all — both
+use the `$env` map directly:
+
+- `examples/slim/` is hand-rolled (`slim/slim` + `slim/psr7`). One
+  route calls `$env->DB->prepare(...)` in the front controller. The
+  tarball is ~110 KB and cold boot lands around 0.4 s — the cheap end
+  of the spectrum next to Laravel.
+- `examples/symfony/` is a stock `symfony/skeleton` with one added
+  controller (`#[Route('/')]` → `global $env; $env->DB->...`). The
+  build clears `var/cache` after composer install so container-warmed
+  paths never reach the tarball; MEMFS rebuilds it per isolate.
+- All three builds share `build/build-framework.sh <dir> <docroot>
+  <dist> [post-step...]`: dockerized composer install, optional
+  dockerized post-step (`php artisan route:cache` for Laravel), then
+  `workers-php build` + statics staging.
+
+Frameworks that don't fit the current wasm build: CodeIgniter 4 and
+CakePHP 5 require `ext-intl` (not compiled in), and WordPress core
+talks `mysqli` (not compiled in) — WordPress needs a MySQL→SQLite
+translation layer before it can run here.
 
 ## How it works
 

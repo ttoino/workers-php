@@ -37,15 +37,21 @@ examples/bindings-demo/       Reference PHP app using D1 + R2 + KV + vars
                               through the `$env` superglobal.
 examples/laravel/             Stock Laravel 13 app; D1 via a custom DB
                               driver over workers-php's D1PDO.
+examples/slim/                Hand-rolled Slim 4 app; D1 via $env->DB.
+examples/symfony/             Stock Symfony 7 skeleton; D1 via $env->DB.
 src/index.ts                  Tiny demo Worker, the original PHP demo.
 src/bindings-index.ts         Worker entrypoint for examples/bindings-demo.
 src/laravel-index.ts          Worker entrypoint for examples/laravel.
+src/slim-index.ts             Worker entrypoint for examples/slim.
+src/symfony-index.ts          Worker entrypoint for examples/symfony.
 src/feup-index.ts             Worker that deploys ttoino/feup-ltw-proj
                               (xaufome). See "Run the xaufome deployment".
 php/                          PHP project for the basic demo.
 wrangler.jsonc                Basic demo config.
 wrangler.bindings.jsonc       Bindings-demo config (D1 + R2 + KV + var).
 wrangler.laravel.jsonc        Laravel example config (D1 + var).
+wrangler.slim.jsonc           Slim example config (D1 + var).
+wrangler.symfony.jsonc        Symfony example config (D1 + var).
 wrangler.feup.jsonc           xaufome deployment config.
 ```
 
@@ -96,7 +102,8 @@ for the full bindings API.
 `examples/laravel/` is a stock Laravel 13 app (created with
 `composer create-project laravel/laravel`; vendor is built at build time,
 never committed). It runs on D1 through a small service provider that
-registers Laravel's database layer on top of workers-php's D1PDO.
+registers Laravel's database layer on top of workers-php's D1PDO. Live at
+<https://workers-php-laravel.toino.workers.dev>.
 
 ```bash
 npm run dev:laravel        # composer install (docker) + build + wrangler dev
@@ -107,6 +114,21 @@ npm run dev:laravel        # composer install (docker) + build + wrangler dev
 
 The app tarball is ~5 MB — far under the 25 MiB per-asset limit, so
 app code stays out of the worker bundle entirely.
+
+## Run the Slim and Symfony examples
+
+`examples/slim/` (Slim 4, hand-rolled) and `examples/symfony/` (stock
+`symfony/skeleton` 7) serve the same D1-backed counter with no
+framework-specific shims — both call `$env->DB` directly. Live at
+<https://workers-php-slim.toino.workers.dev> and
+<https://workers-php-symfony.toino.workers.dev>.
+
+```bash
+npm run dev:slim           # or dev:symfony
+# or: npm run deploy:slim / deploy:symfony  (after `wrangler d1 create
+#                             workers-php-<fw>-db`, pasting its id into
+#                             wrangler.<fw>.jsonc, and `npm run <fw>:migrate:remote`)
+```
 
 ## Run the xaufome deployment
 

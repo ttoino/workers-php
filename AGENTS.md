@@ -7,17 +7,21 @@ PHP 8.5 running on Cloudflare Workers, via [seanmorris/php-wasm](https://github.
 - `php/` + `src/index.ts` — root demo Worker.
 - `examples/bindings-demo/` — D1/R2/KV bindings demo.
 - `examples/laravel/` — stock Laravel 13 on D1 (custom `d1` driver over D1PDO); vendor via dockerized composer, never committed.
+- `examples/slim/` — hand-rolled Slim 4 on D1 via `$env->DB` directly.
+- `examples/symfony/` — stock Symfony 7 skeleton on D1 via `$env->DB` directly; build clears `var/cache` post-composer.
 - `feup-ltw-proj/` — xaufome, cloned by `build-feup.sh` (not committed); deployed via `wrangler.feup.jsonc`.
 
 ## Commands
 
 | Command | Purpose |
 |---------|---------|
-| `npm test` | vitest in **watch mode** — use `npx vitest run` for a one-shot run. Needs `dist/` and `dist-laravel/app.tar.gz` built first (laravel.spec imports it statically) |
-| `npx tsc --noEmit` | Type-check. Authoritative: editor LSP shows false positives here (`Fetcher`, `ExecutionContext`, C/PHP overlays) |
+| `npm test` | vitest in **watch mode** — use `npx vitest run` for a one-shot run. Needs `dist/` and `dist-{laravel,slim,symfony}/app.tar.gz` built first (framework specs import them statically) |
+| `npx tsc --noEmit` | Type-check. Authoritative: editor LSP shows false positives here (`Fetcher`, `ExecutionContext`, C/PHP overlays). Use `./node_modules/.bin/tsc` when `npx` stalls through the proxy |
 | `npm run dev` / `npm run deploy` | Root demo |
 | `npm run dev:bindings` / `npm run deploy:bindings` | Bindings demo |
 | `npm run dev:laravel` / `npm run deploy:laravel` | Laravel example; `npm run laravel:migrate:local` first for dev |
+| `npm run dev:slim` / `npm run deploy:slim` | Slim example; `npm run slim:migrate:local` first for dev |
+| `npm run dev:symfony` / `npm run deploy:symfony` | Symfony example; `npm run symfony:migrate:local` first for dev |
 | `npm run dev:feup` / `npm run deploy:feup` | xaufome deployment |
 | `npm run build-wasm` | Rebuild `php-web.wasm` from source (docker, long); produces `*.staged` |
 | `npm run wasm-promote` | Promote staged wasm artifacts to active, old to `*.legacy` |

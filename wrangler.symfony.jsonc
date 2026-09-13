@@ -35,7 +35,7 @@
 		{
 			"binding": "DB",
 			"database_name": "workers-php-symfony-db",
-			"database_id": "00000000-0000-0000-0000-000000000000"
+			"database_id": "a3716b8e-775c-422c-8af8-4984afa8fab4"
 		}
 	],
 	"rules": [
