@@ -2,7 +2,7 @@ packages:
   - packages/*
   - examples/*
 
-onlyBuiltDependencies:
-  - esbuild
-  - workerd
-  - sharp
+allowBuilds:
+  esbuild: true
+  workerd: true
+  sharp: true
