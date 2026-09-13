@@ -35,7 +35,7 @@
 		{
 			"binding": "DB",
 			"database_name": "workers-php-slim-db",
-			"database_id": "00000000-0000-0000-0000-000000000000"
+			"database_id": "acee86f2-cc9b-4487-a76a-5d6bf1b9e8e6"
 		}
 	],
 	"rules": [
