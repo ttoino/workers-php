@@ -1,0 +1,44 @@
+/**
+ * Wrangler config for the Slim example (examples/slim).
+ *
+ * Use with: `npm run dev:slim` or `npm run deploy:slim`.
+ *
+ * The database is plain SQLite SQL via the $env->DB binding. Before first
+ * deploy, run:
+ *
+ *     wrangler d1 create workers-php-slim-db
+ *     wrangler d1 execute workers-php-slim-db --config wrangler.slim.jsonc --remote --file=examples/slim/database/schema.sql
+ *
+ * Then paste the resulting database_id into the placeholder below.
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "workers-php-slim",
+	"main": "src/slim-index.ts",
+	"compatibility_date": "2026-05-26",
+	"observability": {
+		"enabled": true
+	},
+	"upload_source_maps": true,
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"assets": {
+		"directory": "./dist-slim",
+		"binding": "ASSETS",
+		"run_worker_first": true
+	},
+	"vars": {
+		"APP_ENV": "production"
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "workers-php-slim-db",
+			"database_id": "00000000-0000-0000-0000-000000000000"
+		}
+	],
+	"rules": [
+		{ "type": "Text", "globs": ["**/*.php"], "fallthrough": true }
+	]
+}

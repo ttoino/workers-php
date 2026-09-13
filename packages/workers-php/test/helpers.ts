@@ -94,3 +94,72 @@ export const mockCtx = {
 	waitUntil: () => {},
 	passThroughOnException: () => {},
 } as unknown as ExecutionContext;
+
+/** In-process D1 emulation with page_hits semantics for the framework
+ *  example smoke specs: INSERT rows land, `COUNT(*) AS aggregate`
+ *  reflects them; everything else runs for real. */
+export const makePageHitsD1 = () => {
+	const rows: {id: number; path: string; created_at: string}[] = [];
+	const resultsFor = (sql: string) =>
+		/count\(\*\)\s+as\s+"?aggregate"?/i.test(sql)
+			? [{aggregate: rows.length}]
+			: rows.map((r) => ({...r}));
+	const stmt = (sql: string, params: unknown[]) => ({
+		async run() {
+			// The PDO path (lib.php D1PDOStatement) routes every statement
+			// through d1_run, so branch on the SQL shape here.
+			if (/^\s*insert/i.test(sql)) {
+				rows.push({
+					id: rows.length + 1,
+					path: String(params[0] ?? ""),
+					created_at: "",
+				});
+				return {
+					results: [],
+					success: true,
+					meta: {duration: 0.1, last_row_id: rows.length, changes: 1},
+				};
+			}
+			return {
+				results: resultsFor(sql),
+				success: true,
+				meta: {duration: 0.1, last_row_id: 0, changes: 0},
+			};
+		},
+		async all() {
+			return this.run();
+		},
+		async first(colName?: string | null) {
+			const results = /^\s*insert/i.test(sql) ? [] : resultsFor(sql);
+			const row = (results[0] ?? null) as Record<string, unknown> | null;
+			return colName ? (row?.[colName] ?? null) : row;
+		},
+		async raw() {
+			return rows.map((r) => Object.values(r));
+		},
+	});
+	return {
+		prepare(sql: string) {
+			return {
+				bind(...params: unknown[]) {
+					return stmt(sql, params);
+				},
+				...stmt(sql, []),
+			};
+		},
+		async batch() {
+			return [];
+		},
+		async exec() {
+			return {count: 0, duration: 0};
+		},
+	};
+};
+
+/** Parse the shared "Page hits: <strong>N</strong>" counter page served
+ *  by the framework examples. */
+export const hitCount = (html: string): number => {
+	const m = html.match(/Page hits[\s\S]*?<strong>(\d+)<\/strong>/);
+	if (!m) throw new Error("hit counter not found in response");
+	return Number(m[1]);
+};

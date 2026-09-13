@@ -1,0 +1,12 @@
+{
+    "name": "workers-php/slim-example",
+    "description": "Stock Slim 4 on Cloudflare Workers via workers-php.",
+    "require": {
+        "php": ">=8.2",
+        "slim/slim": "^4.0",
+        "slim/psr7": "^1.0"
+    },
+    "config": {
+        "process-timeout": 0
+    }
+}

@@ -28,10 +28,13 @@ jobs:
       - name: build demo bundle
         run: npm run build-php
 
-      # test/laravel.spec.ts imports dist-laravel/app.tar.gz statically
+      # test/{laravel,slim}.spec.ts import dist-*/app.tar.gz statically
       # (workerd has no host fs); built via the dockerized composer image.
       - name: build laravel bundle
         run: npm run build:laravel
+
+      - name: build slim bundle
+        run: npm run build:slim
 
       - name: tests
         # Explicit `vitest run` (npm test alone enters watch-mode semantics
