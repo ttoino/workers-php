@@ -330,7 +330,10 @@ except for config. What makes it fit:
   sessions, array cache, sync queue, errorlog logging. `storage/` is
   writable but per-isolate.
 - Boot is fresh per request (no opcache); warm requests land in the
-  hundreds of ms, so this needs a Paid plan's CPU budget.
+  hundreds of ms, so this needs a Paid plan's CPU budget. The build
+  runs `route:cache`; `config:cache` does not apply — it freezes
+  absolute build-time paths (view.paths, storage dirs) that don't
+  exist in the worker.
 
 ## How it works
 
