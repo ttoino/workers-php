@@ -43,10 +43,9 @@ examples/symfony/             Stock Symfony 7 skeleton; D1 via $env->DB.
 ```
 
 Every deployable app carries its own `wrangler.jsonc` + `worker.ts`
-where its code lives: `examples/*/`, and `feup-ltw-proj/` (xaufome —
-generated from `build/feup/` overlays by `npm run build-feup`). The repo
-root holds no wrangler config; vitest-pool-workers reads
-`examples/demo/wrangler.jsonc` (see vitest.config.mts).
+where its code lives; the repo root holds no wrangler config.
+vitest-pool-workers reads `examples/demo/wrangler.jsonc` (see
+vitest.config.mts).
 
 ## Run the basic demo
 
@@ -122,74 +121,14 @@ npm run dev:slim           # or dev:symfony
 #                             wrangler.<fw>.jsonc, and `npm run <fw>:migrate:remote`)
 ```
 
-## Run the xaufome deployment
+## Real-world deployments
 
-A third demo deploys [ttoino/feup-ltw-proj][feup] (xaufome),
-a 65-file PHP-from-scratch restaurant site originally written for a
-LAMP stack. Persistence is now backed by:
+Full PHP apps deployed with workers-php live in their own repos:
 
-- **Cloudflare D1** for the relational data (users, restaurants,
-  dishes, menus, orders, reviews) via `$env->DB`.
-- **Cloudflare R2** for user-uploaded restaurant/dish/menu/profile
-  images via `$env->IMAGES`, served straight back out at
-  `/assets/pictures/<type>/<id>.webp` with a `staticRoutes` rule.
-
-The upstream repo isn't committed here; the build script clones it,
-overlays a router and a few small adapter files, and the rest of the
-PHP code runs unchanged.
-
-```bash
-git clone https://github.com/ttoino/feup-ltw-proj.git feup-ltw-proj
-pnpm install
-
-# One-time wrangler setup
-npx wrangler d1     create xaufome-db
-npx wrangler r2     bucket create xaufome-images
-# Paste the resulting D1 UUID into feup-ltw-proj/wrangler.jsonc
-
-# Seed the schema into local D1 (~5 seconds)
-npm run feup:migrate:local
-
-npm run dev:feup           # serves at http://localhost:8787
-# or: npm run deploy:feup  (preceded by `npm run feup:migrate:remote`)
-```
-
-Working end-to-end (verified against `wrangler dev`):
-
-- Home, login, register, profile, restaurant detail pages, search, JSON
-  API, static assets, 404 page.
-- Register/login/logout flow.
-- `/cart/` (upstream `pageError()`-without-require bug fixed in the
-  overlay).
-- **Multipart image uploads** to `actions/edit_profile.php` and
-  `actions/edit_restaurant.php`. Resized via GD, encoded as WebP, stored
-  in R2.
-- **Persistence across isolate recycles.** Registrations, reviews, cart
-  contents, uploaded images, **and login sessions** all survive
-  `wrangler dev` restarts. PHP `$_SESSION` is backed by the
-  `workers_php_sessions` table in D1 via `SessionHandlerD1` (auto-
-  created on first use; no migration needed).
-
-Known limitations (deferred):
-
-- **Outbound HTTP** from PHP goes through the library's curl polyfill
-  (userland `curl_*` over the Worker's `fetch()`); the app doesn't need it.
-
-The build steps live in `build/`:
-
-- `build/build-feup.sh` — installs router.php, overlays a D1-backed
-  `database/connection.php` and an R2-backed `lib/files.php`, patches
-  `lib/session.php` (cookie_secure conditional on HTTPS), patches
-  `database/models/model.php` (`HasImage::getImagePath` no longer
-  probes MEMFS), patches `cart/index.php` (adds missing `require_once`),
-  copies default-image placeholders.
-- `build/build-feup-static.sh` — copies `style/`, `scripts/`, `assets/`
-  into `feup-ltw-proj/dist/` for direct ASSETS serving.
-- `build/feup/router.php` — Apache-style front controller.
-- `build/feup/connection.php` — D1-backed `getDBConnection()`.
-- `build/feup/files.php` — R2-backed `uploadImage()`.
-
-[feup]: https://github.com/ttoino/feup-ltw-proj
+- **xaufome** ([ttoino/xaufome](https://github.com/ttoino/xaufome)) —
+  a 65-file PHP-from-scratch restaurant site (originally LAMP), on D1
+  for relational data and R2 for uploads. Live at
+  <https://xaufome.toino.workers.dev>.
 
 ## Rebuild the PHP wasm
 

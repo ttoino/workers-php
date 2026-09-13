@@ -5,15 +5,14 @@ PHP 8.5 running on Cloudflare Workers, via [seanmorris/php-wasm](https://github.
 Dependencies via pnpm workspaces (`pnpm-workspace.yaml`): `packages/*` and every `examples/*` are members; each example declares `workers-php: workspace:*` so it stands alone. Install with `pnpm install` at the root.
 
 - `packages/workers-php/` — the `workers-php` npm library: runtime TS in `src/runtime/`, PHP runtime library in `php/`, wasm artifacts in `src/wasm/`, CLI in `bin/workers-php.mjs`, tests in `test/`.
-- `build/` — wasm build from source: `build-php-wasm.sh` (docker, clones upstream at `pinned-commit.txt`, applies `patches/`, stages artifacts), `promote-wasm.sh`, extension config in `php-wasm.env`, vendored app overlays in `feup/`.
+- `build/` — wasm build from source: `build-php-wasm.sh` (docker, clones upstream at `pinned-commit.txt`, applies `patches/`, stages artifacts), `promote-wasm.sh`, extension config in `php-wasm.env`.
 - `examples/demo/` — the original PHP demo (php/ app + worker.ts); vitest-pool-workers reads its `wrangler.jsonc` (compat + `Data` rule for `**/*.tar.gz` spec imports).
 - `examples/bindings-demo/` — D1/R2/KV bindings demo.
 - `examples/laravel/` — stock Laravel 13 on D1 (custom `d1` driver over D1PDO); vendor via dockerized composer, never committed.
 - `examples/slim/` — hand-rolled Slim 4 on D1 via `$env->DB` directly.
 - `examples/symfony/` — stock Symfony 7 skeleton on D1 via `$env->DB` directly; build clears `var/cache` post-composer.
-- `feup-ltw-proj/` — xaufome, cloned by `build-feup.sh` (not committed).
 
-Every deployable app colocates its `wrangler.jsonc` + `worker.ts` with its code (`examples/*/`, `feup-ltw-proj/`); feup's pair is versioned as `build/feup/` overlays and copied in at build time. The repo root holds no wrangler config.
+Every deployable app colocates its `wrangler.jsonc` + `worker.ts` with its code (`examples/*/`). The repo root holds no wrangler config. Real-app deployments live in their own repos (xaufome at `~/Projects/github/ttoino/xaufome`).
 
 ## Commands
 
@@ -26,7 +25,6 @@ Every deployable app colocates its `wrangler.jsonc` + `worker.ts` with its code 
 | `npm run dev:laravel` / `npm run deploy:laravel` | Laravel example; `npm run laravel:migrate:local` first for dev |
 | `npm run dev:slim` / `npm run deploy:slim` | Slim example; `npm run slim:migrate:local` first for dev |
 | `npm run dev:symfony` / `npm run deploy:symfony` | Symfony example; `npm run symfony:migrate:local` first for dev |
-| `npm run dev:feup` / `npm run deploy:feup` | xaufome deployment |
 | `npm run build-wasm` | Rebuild `php-web.wasm` from source (docker, long); produces `*.staged` |
 | `npm run wasm-promote` | Promote staged wasm artifacts to active, old to `*.legacy` |
 | `npx wrangler dev` / `deploy` / `types` | Local dev / deploy / regenerate types after binding changes |

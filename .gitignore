@@ -172,13 +172,6 @@ dist
 # Local Laravel experiment scratch dir (superseded by examples/laravel)
 /laravel/
 
-# xaufome / ttoino/feup-ltw-proj deployment recipe:
-# the project is cloned-in, build/build-feup.sh overlays a router and
-# builds main.db, then `workers-php build` writes feup-ltw-proj/dist/.
-# Tracked files live under build/feup/ (overlays, incl. wrangler.jsonc +
-# worker.ts).
-feup-ltw-proj/
-
 # Example build outputs (laravel's and symfony's .env files stay
 # tracked: they carry demo stock config)
 examples/*/dist/
