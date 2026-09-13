@@ -1,6 +1,7 @@
 #include <emscripten.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <errno.h>
 
 #include "SAPI.h"
 #include "main/php_main.h"
@@ -36,6 +37,19 @@
 #ifdef WITH_SDL
 #include <SDL_hints.h>
 #endif
+
+/* workers-php: emscripten's libc leaves reallocarray unresolved in
+ * MAIN_MODULE builds (allow-undefined symbols never pull the archive
+ * member), while configure still detects it from headers — ext/uri's
+ * uriparser then aborts with "missing function: reallocarray" the
+ * first time it grows a buffer. Provide the strong definition here. */
+void *reallocarray(void *ptr, size_t nmemb, size_t size) {
+	if(nmemb && size > ((size_t)-1) / nmemb) {
+		errno = ENOMEM;
+		return NULL;
+	}
+	return realloc(ptr, nmemb * size);
+}
 
 #define STRINGIFY_INTERNAL(MACRO) #MACRO
 #define STRINGIFY(MACRO)  STRINGIFY_INTERNAL(MACRO)
