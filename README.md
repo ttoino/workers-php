@@ -51,7 +51,7 @@ root holds no wrangler config; vitest-pool-workers reads
 ## Run the basic demo
 
 ```bash
-npm install
+pnpm install
 npm run dev                # build examples/demo + wrangler dev at :8787
 ```
 
@@ -140,7 +140,7 @@ PHP code runs unchanged.
 
 ```bash
 git clone https://github.com/ttoino/feup-ltw-proj.git feup-ltw-proj
-npm install
+pnpm install
 
 # One-time wrangler setup
 npx wrangler d1     create xaufome-db

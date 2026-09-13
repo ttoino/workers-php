@@ -2,6 +2,8 @@
 
 PHP 8.5 running on Cloudflare Workers, via [seanmorris/php-wasm](https://github.com/seanmorris/php-wasm).
 
+Dependencies via pnpm workspaces (`pnpm-workspace.yaml`): `packages/*` and every `examples/*` are members; each example declares `workers-php: workspace:*` so it stands alone. Install with `pnpm install` at the root.
+
 - `packages/workers-php/` — the `workers-php` npm library: runtime TS in `src/runtime/`, PHP runtime library in `php/`, wasm artifacts in `src/wasm/`, CLI in `bin/workers-php.mjs`, tests in `test/`.
 - `build/` — wasm build from source: `build-php-wasm.sh` (docker, clones upstream at `pinned-commit.txt`, applies `patches/`, stages artifacts), `promote-wasm.sh`, extension config in `php-wasm.env`, vendored app overlays in `feup/`.
 - `examples/demo/` — the original PHP demo (php/ app + worker.ts); vitest-pool-workers reads its `wrangler.jsonc` (compat + `Data` rule for `**/*.tar.gz` spec imports).

@@ -1,0 +1,7 @@
+{
+  "name": "workers-php-example-demo",
+  "private": true,
+  "dependencies": {
+    "workers-php": "workspace:*"
+  }
+}

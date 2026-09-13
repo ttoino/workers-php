@@ -1,0 +1,7 @@
+{
+  "name": "workers-php-example-laravel",
+  "private": true,
+  "dependencies": {
+    "workers-php": "workspace:*"
+  }
+}

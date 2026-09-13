@@ -12,36 +12,38 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
+          cache: pnpm
 
-      - run: npm ci
+      - run: pnpm install --frozen-lockfile
 
       - name: typecheck
-        run: npx tsc --noEmit
+        run: pnpm exec tsc --noEmit
 
       # examples/demo/wrangler.jsonc declares assets.directory=./dist;
       # vitest-pool-workers validates it at startup. dist/ is gitignored
       # (built artifact), so produce it on CI.
       - name: build demo bundle
-        run: npm run build-php
+        run: pnpm run build-php
 
-      # test/{laravel,slim,symfony}.spec.ts import dist-*/app.tar.gz
-      # statically (workerd has no host fs); built via the dockerized
-      # composer image.
+      # test/{laravel,slim,symfony}.spec.ts import
+      # examples/*/dist/app.tar.gz statically (workerd has no host fs);
+      # built via the dockerized composer image.
       - name: build laravel bundle
-        run: npm run build:laravel
+        run: pnpm run build:laravel
 
       - name: build slim bundle
-        run: npm run build:slim
+        run: pnpm run build:slim
 
       - name: build symfony bundle
-        run: npm run build:symfony
+        run: pnpm run build:symfony
 
       - name: tests
-        # Explicit `vitest run` (npm test alone enters watch-mode semantics
+        # Explicit `vitest run` (pnpm test alone enters watch-mode semantics
         # in some environments) + per-test verbose output so a stall is
         # visible in the log.
-        run: npx vitest run --reporter=verbose
+        run: pnpm exec vitest run --reporter=verbose
