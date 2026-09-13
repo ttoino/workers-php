@@ -2,13 +2,13 @@
 // is emulated in-process with page_hits semantics; Slim's router and the
 // direct $env->DB access run for real.
 //
-// Requires dist-slim/app.tar.gz (npm run build:slim). CI builds it
+// Requires examples/slim/dist/app.tar.gz (npm run build:slim). CI
 // before running vitest.
 
 import {describe, expect, it} from "vitest";
 import {createPhpHandler} from "../src/index";
 import {hitCount, makeMockAssets, makePageHitsD1, mockCtx} from "./helpers";
-import appTarGz from "../../../dist-slim/app.tar.gz";
+import appTarGz from "../../../examples/slim/dist/app.tar.gz";
 
 describe("examples/slim (built tarball)", () => {
 	it(

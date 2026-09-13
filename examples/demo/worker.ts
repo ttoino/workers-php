@@ -1,6 +1,6 @@
 // Demo Worker consuming the `workers-php` library.
 //
-// `npm run build-php` bundles this directory's ./php/ into the repo-root
+// `npm run build-php` bundles this directory's ./php/ into its own
 // dist/app.tar.gz, which Wrangler uploads as a Workers ASSET. On first
 // request the handler mounts it into the PHP wasm FS; each request is
 // dispatched through router.php.

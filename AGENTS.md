@@ -17,7 +17,7 @@ Every deployable app colocates its `wrangler.jsonc` + `worker.ts` with its code 
 
 | Command | Purpose |
 |---------|---------|
-| `npm test` | vitest in **watch mode** — use `npx vitest run` for a one-shot run. Needs `dist/` and `dist-{laravel,slim,symfony}/app.tar.gz` built first (framework specs import them statically) |
+| `npm test` | vitest in **watch mode** — use `npx vitest run` for a one-shot run. Needs `examples/*/dist/app.tar.gz` built first (demo + framework specs import them statically) |
 | `npx tsc --noEmit` | Type-check. Authoritative: editor LSP shows false positives here (`Fetcher`, `ExecutionContext`, C/PHP overlays). Use `./node_modules/.bin/tsc` when `npx` stalls through the proxy |
 | `npm run dev` / `npm run deploy` | Demo example (examples/demo) |
 | `npm run dev:bindings` / `npm run deploy:bindings` | Bindings demo |

@@ -24,7 +24,7 @@
 		"nodejs_compat"
 	],
 	"assets": {
-		"directory": "../../dist-laravel",
+		"directory": "./dist",
 		"binding": "ASSETS",
 		"run_worker_first": true
 	},

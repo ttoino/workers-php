@@ -22,9 +22,9 @@ jobs:
       - name: typecheck
         run: npx tsc --noEmit
 
-      # wrangler.jsonc declares assets.directory=./dist; vitest-pool-workers
-      # validates it at startup. dist/ is gitignored (built artifact), so
-      # produce it on CI.
+      # examples/demo/wrangler.jsonc declares assets.directory=./dist;
+      # vitest-pool-workers validates it at startup. dist/ is gitignored
+      # (built artifact), so produce it on CI.
       - name: build demo bundle
         run: npm run build-php
 

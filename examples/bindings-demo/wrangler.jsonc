@@ -26,7 +26,7 @@
 		"nodejs_compat"
 	],
 	"assets": {
-		"directory": "../../dist-bindings",
+		"directory": "./dist",
 		"binding": "ASSETS",
 		"run_worker_first": true
 	},

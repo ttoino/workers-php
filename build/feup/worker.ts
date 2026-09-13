@@ -3,7 +3,7 @@
 //
 // `npm run build-feup` clones the project into ./feup-ltw-proj, overlays
 // a router plus D1/R2-backed replacements (see build/build-feup.sh for
-// the list), and bundles the tree into ./dist-feup/app.tar.gz.
+// the list), and bundles the tree into ./dist/app.tar.gz.
 //
 // Persistence: relational data → D1 (env.DB via \WorkersPHP\D1PDO);
 // uploaded images → R2 (env.IMAGES), served back via `staticRoutes`.

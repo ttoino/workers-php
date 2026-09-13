@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# Build a composer-based framework example into a dist dir: install vendor
-# with composer (dockerized — no local PHP toolchain), optionally run a
-# framework post-step (e.g. Laravel's route:cache), bundle the app tarball,
-# and stage the docroot's statics next to it for the ASSETS binding.
+# Build a composer-based framework example into its dist/ dir: install
+# vendor with composer (dockerized — no local PHP toolchain), optionally
+# run a framework post-step (e.g. Laravel's route:cache), bundle the app
+# tarball, and stage the docroot's statics next to it for ASSETS.
 #
-# Usage: build-framework.sh <example-dir> <docroot> <dist-name> [post-command...]
+# Usage: build-framework.sh <example-dir> <docroot> [post-command...]
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 EXAMPLE_DIR=$1
 DOCROOT=$2
-DIST_NAME=$3
-shift 3
+shift 2
+DIST_DIR="$EXAMPLE_DIR/dist"
 
 COMPOSER_CACHE_DIR=${COMPOSER_CACHE_DIR:-$HOME/.cache/composer}
 WARP_CA="$HOME/.local/share/cloudflare-warp-certs/CloudflareRootCertificateCombined.pem"
@@ -42,8 +42,7 @@ docker run --rm -v "$PWD/$EXAMPLE_DIR:/app" -w /app composer:2 \
 	chown -R "$(id -u):$(id -g)" vendor composer.lock
 
 # 3. Bundle the app (docroot is the web root; vendor ships in the tarball).
-npx workers-php build "./$EXAMPLE_DIR" --out "./$DIST_NAME" --docroot "$DOCROOT" --entrypoint index.php
+npx workers-php build "./$EXAMPLE_DIR" --out "./$DIST_DIR" --docroot "$DOCROOT" --entrypoint index.php
 
 # 4. Stage docroot statics for ASSETS (PHP files stay tarball-only).
-mkdir -p "$DIST_NAME"
-tar -cf - -C "$EXAMPLE_DIR/$DOCROOT" --exclude=index.php . | tar -xf - -C "$DIST_NAME"
+tar -cf - -C "$EXAMPLE_DIR/$DOCROOT" --exclude=index.php . | tar -xf - -C "$DIST_DIR"

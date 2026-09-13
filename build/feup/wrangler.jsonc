@@ -25,7 +25,7 @@
 	// Holds app.tar.gz + statics, produced by `npm run build-feup`.
 	// Uploads are served from R2 via `staticRoutes` instead.
 	"assets": {
-		"directory": "../dist-feup",
+		"directory": "./dist",
 		"binding": "ASSETS",
 		"run_worker_first": true
 	},

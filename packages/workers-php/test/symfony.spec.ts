@@ -2,13 +2,13 @@
 // end. D1 is emulated in-process with page_hits semantics; Symfony's
 // runtime component, kernel, and attribute routing run for real.
 //
-// Requires dist-symfony/app.tar.gz (npm run build:symfony). CI builds
+// Requires examples/symfony/dist/app.tar.gz (npm run build:symfony). CI
 // it before running vitest.
 
 import {describe, expect, it} from "vitest";
 import {createPhpHandler} from "../src/index";
 import {hitCount, makeMockAssets, makePageHitsD1, mockCtx} from "./helpers";
-import appTarGz from "../../../dist-symfony/app.tar.gz";
+import appTarGz from "../../../examples/symfony/dist/app.tar.gz";
 
 describe("examples/symfony (built tarball)", () => {
 	it(

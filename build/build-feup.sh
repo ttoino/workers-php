@@ -231,5 +231,5 @@ done
 echo
 ok "feup-ltw-proj is ready to bundle. Next:"
 echo "    npx workers-php build ${PROJECT_DIR} \\"
-echo "        --out ${REPO_ROOT}/dist-feup \\"
+echo "        --out ${PROJECT_DIR}/dist \\"
 echo "        --docroot . --entrypoint router.php"

@@ -3,7 +3,7 @@
 // wasm boot, tarball mount, Laravel's kernel, the D1ServiceProvider shim,
 // Blade — runs for real.
 //
-// Requires dist-laravel/app.tar.gz (npm run build:laravel). CI builds it
+// Requires examples/laravel/dist/app.tar.gz (npm run build:laravel). CI
 // before running vitest.
 
 import {describe, expect, it} from "vitest";
@@ -12,7 +12,7 @@ import {hitCount, makeMockAssets, makePageHitsD1, mockCtx} from "./helpers";
 // Data module via the pool's modulesRules. Static: dynamic imports skip
 // the externalizer, so the tarball must exist — run `npm run
 // build:laravel` before the suite (CI does).
-import appTarGz from "../../../dist-laravel/app.tar.gz";
+import appTarGz from "../../../examples/laravel/dist/app.tar.gz";
 
 describe("examples/laravel (built tarball)", () => {
 	it(

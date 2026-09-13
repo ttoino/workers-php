@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copy feup-ltw-proj's static assets into dist-feup/ for direct ASSETS
+# Copy feup-ltw-proj's static assets into feup-ltw-proj/dist/ for direct ASSETS
 # serving.
 #
 # The static short-circuit forwards .css/.js/... requests to
@@ -14,7 +14,7 @@ set -euo pipefail
 
 readonly REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly PROJECT_DIR="${REPO_ROOT}/feup-ltw-proj"
-readonly DIST_DIR="${REPO_ROOT}/dist-feup"
+readonly DIST_DIR="${PROJECT_DIR}/dist"
 
 readonly C_BOLD=$'\033[1m'
 readonly C_GREEN=$'\033[32m'

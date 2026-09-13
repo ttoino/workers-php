@@ -99,16 +99,18 @@ const parseArgs = (argv) => {
 	return args;
 };
 
+// GNU tar matches excludes against the traversal name ("./dist"), which
+// never ends in a slash — trailing-slash patterns silently never match.
 const DEFAULT_IGNORES = [
-	".git/",
+	".git",
 	".gitignore",
 	".gitattributes",
 	".editorconfig",
-	"node_modules/",
+	"node_modules",
 	".env.example",
 	".env.testing",
-	"tests/",
-	"test/",
+	"tests",
+	"test",
 	"*.md",
 	"*.dist",
 	"phpunit.xml",
@@ -116,10 +118,10 @@ const DEFAULT_IGNORES = [
 	"CHANGELOG*",
 	"LICENSE*",
 	"README*",
-	"storage/logs/",
-	"storage/framework/cache/data/",
-	"storage/framework/sessions/",
-	"storage/framework/views/",
+	"storage/logs",
+	"storage/framework/cache/data",
+	"storage/framework/sessions",
+	"storage/framework/views",
 ];
 
 const checkTar = () => {
@@ -281,6 +283,12 @@ const cmdBuild = (argv) => {
 			.filter((s) => s && !s.startsWith("#"));
 		if (!args.quiet)
 			log(`using ignore file: ${relative(process.cwd(), ignoreFile)}`);
+	}
+	// An out dir inside the project would otherwise tar itself (and stale
+	// tarballs from previous builds) — exclude it path-relative.
+	const relOut = relative(projectDir, outDir);
+	if (relOut && !relOut.startsWith("..") && relOut !== ".") {
+		userIgnores.push(relOut.replace(/\\/g, "/"));
 	}
 	const allIgnores = [...DEFAULT_IGNORES, ...userIgnores];
 

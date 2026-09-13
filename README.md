@@ -184,7 +184,7 @@ The build steps live in `build/`:
   probes MEMFS), patches `cart/index.php` (adds missing `require_once`),
   copies default-image placeholders.
 - `build/build-feup-static.sh` — copies `style/`, `scripts/`, `assets/`
-  into `dist-feup/` for direct ASSETS serving.
+  into `feup-ltw-proj/dist/` for direct ASSETS serving.
 - `build/feup/router.php` — Apache-style front controller.
 - `build/feup/connection.php` — D1-backed `getDBConnection()`.
 - `build/feup/files.php` — R2-backed `uploadImage()`.
