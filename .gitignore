@@ -189,3 +189,10 @@ dist-bindings/
 # carries the demo's stock config)
 dist-laravel/
 !examples/laravel/.env
+
+# slim/symfony example build outputs (their .env files stay tracked as
+# demo stock config)
+dist-slim/
+dist-symfony/
+!examples/symfony/.env
+!examples/symfony/.env.dev

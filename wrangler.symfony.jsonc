@@ -1,0 +1,44 @@
+/**
+ * Wrangler config for the Symfony example (examples/symfony).
+ *
+ * Use with: `npm run dev:symfony` or `npm run deploy:symfony`.
+ *
+ * The database is plain SQLite SQL via the $env->DB binding. Before first
+ * deploy, run:
+ *
+ *     wrangler d1 create workers-php-symfony-db
+ *     wrangler d1 execute workers-php-symfony-db --config wrangler.symfony.jsonc --remote --file=examples/symfony/database/schema.sql
+ *
+ * Then paste the resulting database_id into the placeholder below.
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "workers-php-symfony",
+	"main": "src/symfony-index.ts",
+	"compatibility_date": "2026-05-26",
+	"observability": {
+		"enabled": true
+	},
+	"upload_source_maps": true,
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"assets": {
+		"directory": "./dist-symfony",
+		"binding": "ASSETS",
+		"run_worker_first": true
+	},
+	"vars": {
+		"APP_ENV": "prod"
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "workers-php-symfony-db",
+			"database_id": "00000000-0000-0000-0000-000000000000"
+		}
+	],
+	"rules": [
+		{ "type": "Text", "globs": ["**/*.php"], "fallthrough": true }
+	]
+}
