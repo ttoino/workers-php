@@ -108,6 +108,25 @@ export const ensureMounted = (
 
 		ensureDir(binary.FS, opts.appRoot);
 
+		// analyzePath is a wasm call per path segment — far too costly to
+		// run for every entry (Laravel ships ~7k files, ~6 deep). Track
+		// known dirs and mkdir only missing ancestors; tar lists parents
+		// before children in practice, so this is O(1) per entry.
+		const knownDirs = new Set<string>();
+		for (let p = opts.appRoot; p; p = p.slice(0, p.lastIndexOf("/"))) {
+			knownDirs.add(p);
+		}
+		const mkdirs = (dir: string): void => {
+			if (!dir || knownDirs.has(dir)) return;
+			mkdirs(dir.slice(0, dir.lastIndexOf("/")));
+			try {
+				binary.FS.mkdir(dir);
+			} catch {
+				// Already exists.
+			}
+			knownDirs.add(dir);
+		};
+
 		let files = 0;
 		let dirs = 0;
 		const strip = opts.stripPrefix
@@ -126,11 +145,10 @@ export const ensureMounted = (
 			const dest = `${opts.appRoot}/${rel.replace(/\/$/, "")}`;
 
 			if (entry.type === "dir") {
-				ensureDir(binary.FS, dest);
+				mkdirs(dest);
 				dirs++;
 			} else if (entry.type === "file") {
-				const parent = dest.slice(0, dest.lastIndexOf("/"));
-				if (parent) ensureDir(binary.FS, parent);
+				mkdirs(dest.slice(0, dest.lastIndexOf("/")));
 				try {
 					binary.FS.writeFile(dest, entry.data);
 				} catch (err) {
