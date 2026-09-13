@@ -8,11 +8,6 @@
     "dev": "npm run build-php --silent && wrangler dev --config examples/demo/wrangler.jsonc",
     "start": "npm run dev",
     "deploy": "npm run build-php --silent && wrangler deploy --config examples/demo/wrangler.jsonc",
-    "build-feup": "bash build/build-feup.sh && workers-php build ./feup-ltw-proj --out ./feup-ltw-proj/dist --docroot . --entrypoint router.php && bash build/build-feup-static.sh",
-    "dev:feup": "npm run build-feup --silent && wrangler dev --config feup-ltw-proj/wrangler.jsonc",
-    "deploy:feup": "npm run build-feup --silent && wrangler deploy --config feup-ltw-proj/wrangler.jsonc",
-    "feup:migrate:local": "wrangler d1 execute xaufome-db --config feup-ltw-proj/wrangler.jsonc --local --file=feup-ltw-proj/database/schema/create.sql && wrangler d1 execute xaufome-db --config feup-ltw-proj/wrangler.jsonc --local --file=feup-ltw-proj/database/schema/triggers.sql && wrangler d1 execute xaufome-db --config feup-ltw-proj/wrangler.jsonc --local --file=feup-ltw-proj/database/schema/populate.sql",
-    "feup:migrate:remote": "wrangler d1 execute xaufome-db --config feup-ltw-proj/wrangler.jsonc --remote --file=feup-ltw-proj/database/schema/create.sql && wrangler d1 execute xaufome-db --config feup-ltw-proj/wrangler.jsonc --remote --file=feup-ltw-proj/database/schema/triggers.sql && wrangler d1 execute xaufome-db --config feup-ltw-proj/wrangler.jsonc --remote --file=feup-ltw-proj/database/schema/populate.sql",
     "build-bindings": "workers-php build ./examples/bindings-demo --out ./examples/bindings-demo/dist --docroot . --entrypoint router.php && cp -a examples/bindings-demo/style examples/bindings-demo/dist/style && cp -a examples/bindings-demo/assets examples/bindings-demo/dist/assets 2>/dev/null || true",
     "migrate-bindings": "wrangler d1 execute workers-php-demo-db --local --file=examples/bindings-demo/schema.sql",
     "dev:bindings": "npm run build-bindings --silent && wrangler dev --config examples/bindings-demo/wrangler.jsonc",
@@ -46,12 +41,5 @@
   },
   "dependencies": {
     "workers-php": "workspace:*"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild",
-      "workerd",
-      "sharp"
-    ]
   }
 }
