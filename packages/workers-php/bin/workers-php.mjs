@@ -107,6 +107,8 @@ const DEFAULT_IGNORES = [
 	".gitattributes",
 	".editorconfig",
 	"node_modules",
+	// wrangler dev's local state (contains multi-MB wasm copies under tmp/).
+	".wrangler",
 	".env.example",
 	".env.testing",
 	"tests",
