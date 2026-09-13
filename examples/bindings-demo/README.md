@@ -15,7 +15,7 @@ A small PHP app that reaches Cloudflare bindings through the workers-php
 npx wrangler d1     create     workers-php-demo-db
 npx wrangler kv     namespace  create workers-php-demo-kv
 npx wrangler r2     bucket     create workers-php-demo-images
-# Paste the resulting IDs into wrangler.bindings.jsonc, then:
+# Paste the resulting IDs into examples/bindings-demo/wrangler.jsonc, then:
 npm run migrate-bindings           # applies schema.sql to local D1
 npm run dev:bindings               # serves http://localhost:8787
 ```
@@ -43,7 +43,7 @@ style/main.css             Page styling.
 
 ## How it talks to bindings
 
-See `src/bindings-index.ts` — `createPhpHandler({ bindings: { DB: 'd1', IMAGES: 'r2', KV: 'kv', APP_ENV: 'var' } })`.
+See `examples/bindings-demo/worker.ts` — `createPhpHandler({ bindings: { DB: 'd1', IMAGES: 'r2', KV: 'kv', APP_ENV: 'var' } })`.
 
 In PHP the bindings show up on `$env`:
 

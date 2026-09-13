@@ -1,5 +1,5 @@
 /**
- * Wrangler config for the Slim example (examples/slim).
+ * Wrangler config for the Slim example (this directory).
  *
  * Use with: `npm run dev:slim` or `npm run deploy:slim`.
  *
@@ -7,14 +7,14 @@
  * deploy, run:
  *
  *     wrangler d1 create workers-php-slim-db
- *     wrangler d1 execute workers-php-slim-db --config wrangler.slim.jsonc --remote --file=examples/slim/database/schema.sql
+ *     wrangler d1 execute workers-php-slim-db --config examples/slim/wrangler.jsonc --remote --file=examples/slim/database/schema.sql
  *
  * Then paste the resulting database_id into the placeholder below.
  */
 {
-	"$schema": "node_modules/wrangler/config-schema.json",
+	"$schema": "../../node_modules/wrangler/config-schema.json",
 	"name": "workers-php-slim",
-	"main": "src/slim-index.ts",
+	"main": "worker.ts",
 	"compatibility_date": "2026-05-26",
 	"observability": {
 		"enabled": true
@@ -24,7 +24,7 @@
 		"nodejs_compat"
 	],
 	"assets": {
-		"directory": "./dist-slim",
+		"directory": "../../dist-slim",
 		"binding": "ASSETS",
 		"run_worker_first": true
 	},

@@ -3,9 +3,9 @@
  * https://developers.cloudflare.com/workers/wrangler/configuration/
  */
 {
-	"$schema": "node_modules/wrangler/config-schema.json",
+	"$schema": "../../node_modules/wrangler/config-schema.json",
 	"name": "php-wasm-worker",
-	"main": "src/index.ts",
+	"main": "worker.ts",
 	"compatibility_date": "2026-05-26",
 	"observability": {
 		"enabled": true
@@ -14,22 +14,23 @@
 	"compatibility_flags": [
 		"nodejs_compat"
 	],
-	// The PHP project lives under ./php/ at dev time; `workers-php build`
-	// bundles it into ./dist/app.tar.gz which Cloudflare uploads as static
-	// assets and the runtime fetches on first request via env.ASSETS.
-	// `run_worker_first: true` is required so PHP routing always wins over
-	// the ASSETS file-matcher.
+	// The PHP project lives under ./php/ in this directory; `npm run
+	// build-php` bundles it into the repo-root dist/app.tar.gz which
+	// Cloudflare uploads as static assets and the runtime fetches on first
+	// request via env.ASSETS. `run_worker_first: true` is required so PHP
+	// routing always wins over the ASSETS file-matcher.
 	"assets": {
-		"directory": "./dist",
+		"directory": "../../dist",
 		"binding": "ASSETS",
 		"run_worker_first": true
 	},
 	// The workers-php library imports a few small .php helper files as
 	// string modules (e.g. the php:// stream-wrapper shim). Tell Wrangler
 	// to treat them as Text modules so the imports resolve at build time.
+	// vitest-pool-workers also reads this config (vitest.config.mts) — the
+	// Data rule lets framework specs import dist-*/app.tar.gz as bytes.
 	"rules": [
 		{ "type": "Text", "globs": ["**/*.php"], "fallthrough": true },
-		// The laravel spec imports dist-laravel/app.tar.gz as bytes.
 		{ "type": "Data", "globs": ["**/*.tar.gz"] }
 	]
 }

@@ -1,6 +1,6 @@
-// Worker entrypoint for the Laravel example (examples/laravel). The D1
-// binding backs Laravel's custom `d1` database driver; APP_ENV surfaces
-// to PHP as `$env->APP_ENV`.
+// Worker entrypoint for the Slim example (this directory). The D1
+// binding is used directly via $env->DB; APP_ENV surfaces to PHP as
+// `$env->APP_ENV`.
 
 import {createPhpHandler} from "workers-php";
 

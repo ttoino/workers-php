@@ -1,5 +1,5 @@
 /**
- * Wrangler config for the Laravel example (examples/laravel).
+ * Wrangler config for the Laravel example (this directory).
  *
  * Use with: `npm run dev:laravel` or `npm run deploy:laravel`.
  *
@@ -7,14 +7,14 @@
  * Before first deploy, run:
  *
  *     wrangler d1 create workers-php-laravel-db
- *     wrangler d1 execute workers-php-laravel-db --config wrangler.laravel.jsonc --remote --file=examples/laravel/database/schema.sql
+ *     wrangler d1 execute workers-php-laravel-db --config examples/laravel/wrangler.jsonc --remote --file=examples/laravel/database/schema.sql
  *
  * Then paste the resulting database_id into the placeholder below.
  */
 {
-	"$schema": "node_modules/wrangler/config-schema.json",
+	"$schema": "../../node_modules/wrangler/config-schema.json",
 	"name": "workers-php-laravel",
-	"main": "src/laravel-index.ts",
+	"main": "worker.ts",
 	"compatibility_date": "2026-05-26",
 	"observability": {
 		"enabled": true
@@ -24,7 +24,7 @@
 		"nodejs_compat"
 	],
 	"assets": {
-		"directory": "./dist-laravel",
+		"directory": "../../dist-laravel",
 		"binding": "ASSETS",
 		"run_worker_first": true
 	},

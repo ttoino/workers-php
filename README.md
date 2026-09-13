@@ -17,7 +17,7 @@ echo $env->APP_ENV;
 ```
 
 ```ts
-// src/index.ts
+// worker.ts
 export default {
   fetch: createPhpHandler({
     docroot: ".", entrypoint: "router.php",
@@ -33,34 +33,26 @@ export default {
 packages/workers-php/         The library. See packages/workers-php/README.md.
 build/                        Scripts that compile the PHP wasm artifact from
                               seanmorris/php-wasm. See build/README.md.
+examples/demo/                The original PHP demo (php/ app + worker).
 examples/bindings-demo/       Reference PHP app using D1 + R2 + KV + vars
                               through the `$env` superglobal.
 examples/laravel/             Stock Laravel 13 app; D1 via a custom DB
                               driver over workers-php's D1PDO.
 examples/slim/                Hand-rolled Slim 4 app; D1 via $env->DB.
 examples/symfony/             Stock Symfony 7 skeleton; D1 via $env->DB.
-src/index.ts                  Tiny demo Worker, the original PHP demo.
-src/bindings-index.ts         Worker entrypoint for examples/bindings-demo.
-src/laravel-index.ts          Worker entrypoint for examples/laravel.
-src/slim-index.ts             Worker entrypoint for examples/slim.
-src/symfony-index.ts          Worker entrypoint for examples/symfony.
-src/feup-index.ts             Worker that deploys ttoino/feup-ltw-proj
-                              (xaufome). See "Run the xaufome deployment".
-php/                          PHP project for the basic demo.
-wrangler.jsonc                Basic demo config.
-wrangler.bindings.jsonc       Bindings-demo config (D1 + R2 + KV + var).
-wrangler.laravel.jsonc        Laravel example config (D1 + var).
-wrangler.slim.jsonc           Slim example config (D1 + var).
-wrangler.symfony.jsonc        Symfony example config (D1 + var).
-wrangler.feup.jsonc           xaufome deployment config.
 ```
+
+Every deployable app carries its own `wrangler.jsonc` + `worker.ts`
+where its code lives: `examples/*/`, and `feup-ltw-proj/` (xaufome —
+generated from `build/feup/` overlays by `npm run build-feup`). The repo
+root holds no wrangler config; vitest-pool-workers reads
+`examples/demo/wrangler.jsonc` (see vitest.config.mts).
 
 ## Run the basic demo
 
 ```bash
 npm install
-npm run build-php          # bundles ./php into ./dist/app.tar.gz
-npx wrangler dev           # serve at http://localhost:8787
+npm run dev                # build examples/demo + wrangler dev at :8787
 ```
 
 Routes:
@@ -80,7 +72,7 @@ vars via the `$env` superglobal that workers-php injects into PHP.
 npx wrangler d1 create        workers-php-demo-db
 npx wrangler r2 bucket create workers-php-demo-images
 npx wrangler kv namespace create workers-php-demo-kv
-# Paste the resulting IDs into wrangler.bindings.jsonc, then:
+# Paste the resulting IDs into examples/bindings-demo/wrangler.jsonc, then:
 npm run migrate-bindings   # apply schema.sql to local D1
 npm run dev:bindings       # serve at http://localhost:8787
 # or: npm run deploy:bindings
@@ -153,7 +145,7 @@ npm install
 # One-time wrangler setup
 npx wrangler d1     create xaufome-db
 npx wrangler r2     bucket create xaufome-images
-# Paste the resulting D1 UUID into wrangler.feup.jsonc
+# Paste the resulting D1 UUID into feup-ltw-proj/wrangler.jsonc
 
 # Seed the schema into local D1 (~5 seconds)
 npm run feup:migrate:local

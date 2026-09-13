@@ -53,11 +53,13 @@ for sql in create populate triggers; do
 done
 ok "PRAGMA stripped"
 
-# 1. Overlay router.php
+# 1. Overlay router.php + worker config/entrypoint
 
-log "Installing router.php into ${PROJECT_DIR}/"
+log "Installing router.php, wrangler.jsonc, worker.ts into ${PROJECT_DIR}/"
 cp "${OVERLAY_DIR}/router.php" "${PROJECT_DIR}/router.php"
-ok "router.php installed"
+cp "${OVERLAY_DIR}/wrangler.jsonc" "${PROJECT_DIR}/wrangler.jsonc"
+cp "${OVERLAY_DIR}/worker.ts" "${PROJECT_DIR}/worker.ts"
+ok "router.php, wrangler.jsonc, worker.ts installed"
 
 # 2. session.php: cookie_secure conditional on HTTPS
 
@@ -124,7 +126,7 @@ import sys, pathlib, re
 p = pathlib.Path(sys.argv[1])
 src = p.read_text()
 
-# R2 + missRewrite (src/feup-index.ts) handle the placeholder fallback at
+# R2 + missRewrite (build/feup/worker.ts) handle the placeholder fallback at
 # the URL layer, so the body becomes a one-liner.
 new_method = (
     "        function getImagePath(): string {\n"

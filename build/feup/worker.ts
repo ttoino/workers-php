@@ -1,4 +1,5 @@
-// Worker entrypoint for ttoino/feup-ltw-proj (xaufome).
+// Worker entrypoint for ttoino/feup-ltw-proj (xaufome), copied into the
+// project dir by build-feup.sh.
 //
 // `npm run build-feup` clones the project into ./feup-ltw-proj, overlays
 // a router plus D1/R2-backed replacements (see build/build-feup.sh for

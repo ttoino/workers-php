@@ -1,5 +1,5 @@
 /**
- * Wrangler config for the Symfony example (examples/symfony).
+ * Wrangler config for the Symfony example (this directory).
  *
  * Use with: `npm run dev:symfony` or `npm run deploy:symfony`.
  *
@@ -7,14 +7,14 @@
  * deploy, run:
  *
  *     wrangler d1 create workers-php-symfony-db
- *     wrangler d1 execute workers-php-symfony-db --config wrangler.symfony.jsonc --remote --file=examples/symfony/database/schema.sql
+ *     wrangler d1 execute workers-php-symfony-db --config examples/symfony/wrangler.jsonc --remote --file=examples/symfony/database/schema.sql
  *
  * Then paste the resulting database_id into the placeholder below.
  */
 {
-	"$schema": "node_modules/wrangler/config-schema.json",
+	"$schema": "../../node_modules/wrangler/config-schema.json",
 	"name": "workers-php-symfony",
-	"main": "src/symfony-index.ts",
+	"main": "worker.ts",
 	"compatibility_date": "2026-05-26",
 	"observability": {
 		"enabled": true
@@ -24,7 +24,7 @@
 		"nodejs_compat"
 	],
 	"assets": {
-		"directory": "./dist-symfony",
+		"directory": "../../dist-symfony",
 		"binding": "ASSETS",
 		"run_worker_first": true
 	},

@@ -22,7 +22,9 @@ export default defineWorkersConfig({
 		watchExclude: ["**/vendor/**"],
 		poolOptions: {
 			workers: {
-				wrangler: { configPath: "./wrangler.jsonc" },
+				// The demo example's config: compatibility settings + the
+				// Data rule that lets specs import dist-*/app.tar.gz.
+				wrangler: { configPath: "./examples/demo/wrangler.jsonc" },
 				// Each wasm-heavy spec compiles the 33 MB php-web.wasm in
 				// its own workerd; running them in parallel got CI jobs
 				// canceled. Serialize on CI only.

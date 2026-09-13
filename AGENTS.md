@@ -4,12 +4,14 @@ PHP 8.5 running on Cloudflare Workers, via [seanmorris/php-wasm](https://github.
 
 - `packages/workers-php/` — the `workers-php` npm library: runtime TS in `src/runtime/`, PHP runtime library in `php/`, wasm artifacts in `src/wasm/`, CLI in `bin/workers-php.mjs`, tests in `test/`.
 - `build/` — wasm build from source: `build-php-wasm.sh` (docker, clones upstream at `pinned-commit.txt`, applies `patches/`, stages artifacts), `promote-wasm.sh`, extension config in `php-wasm.env`, vendored app overlays in `feup/`.
-- `php/` + `src/index.ts` — root demo Worker.
+- `examples/demo/` — the original PHP demo (php/ app + worker.ts); vitest-pool-workers reads its `wrangler.jsonc` (compat + `Data` rule for `**/*.tar.gz` spec imports).
 - `examples/bindings-demo/` — D1/R2/KV bindings demo.
 - `examples/laravel/` — stock Laravel 13 on D1 (custom `d1` driver over D1PDO); vendor via dockerized composer, never committed.
 - `examples/slim/` — hand-rolled Slim 4 on D1 via `$env->DB` directly.
 - `examples/symfony/` — stock Symfony 7 skeleton on D1 via `$env->DB` directly; build clears `var/cache` post-composer.
-- `feup-ltw-proj/` — xaufome, cloned by `build-feup.sh` (not committed); deployed via `wrangler.feup.jsonc`.
+- `feup-ltw-proj/` — xaufome, cloned by `build-feup.sh` (not committed).
+
+Every deployable app colocates its `wrangler.jsonc` + `worker.ts` with its code (`examples/*/`, `feup-ltw-proj/`); feup's pair is versioned as `build/feup/` overlays and copied in at build time. The repo root holds no wrangler config.
 
 ## Commands
 
@@ -17,7 +19,7 @@ PHP 8.5 running on Cloudflare Workers, via [seanmorris/php-wasm](https://github.
 |---------|---------|
 | `npm test` | vitest in **watch mode** — use `npx vitest run` for a one-shot run. Needs `dist/` and `dist-{laravel,slim,symfony}/app.tar.gz` built first (framework specs import them statically) |
 | `npx tsc --noEmit` | Type-check. Authoritative: editor LSP shows false positives here (`Fetcher`, `ExecutionContext`, C/PHP overlays). Use `./node_modules/.bin/tsc` when `npx` stalls through the proxy |
-| `npm run dev` / `npm run deploy` | Root demo |
+| `npm run dev` / `npm run deploy` | Demo example (examples/demo) |
 | `npm run dev:bindings` / `npm run deploy:bindings` | Bindings demo |
 | `npm run dev:laravel` / `npm run deploy:laravel` | Laravel example; `npm run laravel:migrate:local` first for dev |
 | `npm run dev:slim` / `npm run deploy:slim` | Slim example; `npm run slim:migrate:local` first for dev |

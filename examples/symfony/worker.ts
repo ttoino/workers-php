@@ -1,5 +1,6 @@
-// Worker entrypoint for the Slim example (examples/slim). The D1 binding
-// is used directly via $env->DB; APP_ENV surfaces to PHP as `$env->APP_ENV`.
+// Worker entrypoint for the Symfony example (this directory). The D1
+// binding is used directly via $env->DB in the counter controller;
+// APP_ENV surfaces to the Symfony runtime via $_SERVER.
 
 import {createPhpHandler} from "workers-php";
 

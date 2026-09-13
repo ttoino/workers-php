@@ -1,7 +1,7 @@
 // Worker entrypoint for the workers-php bindings demo.
 //
-// Each binding declared in wrangler.bindings.jsonc surfaces to PHP via
-// the `$env` superglobal:
+// Each binding declared in this directory's wrangler.jsonc surfaces to
+// PHP via the `$env` superglobal:
 //
 //     $env->DB       → \WorkersPHP\D1Database   (binding type "d1")
 //     $env->IMAGES   → \WorkersPHP\R2Bucket     (binding type "r2")

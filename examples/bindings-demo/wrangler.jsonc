@@ -1,5 +1,5 @@
 /**
- * Wrangler config for the workers-php bindings demo.
+ * Wrangler config for the workers-php bindings demo (this directory).
  *
  * Use with: `npm run dev:bindings` or `npm run deploy:bindings`.
  *
@@ -14,9 +14,9 @@
  * placeholders below.
  */
 {
-	"$schema": "node_modules/wrangler/config-schema.json",
+	"$schema": "../../node_modules/wrangler/config-schema.json",
 	"name": "workers-php-bindings-demo",
-	"main": "src/bindings-index.ts",
+	"main": "worker.ts",
 	"compatibility_date": "2026-05-26",
 	"observability": {
 		"enabled": true
@@ -26,7 +26,7 @@
 		"nodejs_compat"
 	],
 	"assets": {
-		"directory": "./dist-bindings",
+		"directory": "../../dist-bindings",
 		"binding": "ASSETS",
 		"run_worker_first": true
 	},

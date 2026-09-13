@@ -44,7 +44,8 @@
 	"exclude": ["test", "packages/*/test"],
 	"include": [
 		"worker-configuration.d.ts",
-		"src/**/*.ts",
+		"examples/*/worker.ts",
+		"build/feup/worker.ts",
 		"packages/workers-php/src/**/*.ts",
 		"packages/workers-php/src/**/*.d.ts"
 	]
