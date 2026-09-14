@@ -46,7 +46,7 @@ const utf8Decode = (bytes: Uint8Array): string =>
 // that here so `name="favorites[]"` produces `$_POST['favorites'] = [...]`.
 
 interface PhpScalarTree {
-	[key: string]: string | string[] | PhpScalarTree;
+	[key: string]: string | number | (string | number)[] | PhpScalarTree;
 }
 
 const setNestedScalar = (target: PhpScalarTree, key: string, value: string): void => {
@@ -96,6 +96,7 @@ const setNestedScalar = (target: PhpScalarTree, key: string, value: string): voi
 
 const phpArrayFromTree = (tree: unknown): string => {
 	if (typeof tree === "string") return phpQuoteString(tree);
+	if (typeof tree === "number") return String(tree);
 	if (Array.isArray(tree)) {
 		const parts = tree.map((v) => phpArrayFromTree(v));
 		return `[${parts.join(", ")}]`;
@@ -243,22 +244,22 @@ export const buildPrelude = async (
 							name: f.filename,
 							type: f.contentType,
 							tmp_name: f.tmpPath,
-							error: "0",
-							size: String(f.bytes.byteLength),
+							error: 0,
+							size: f.bytes.byteLength,
 						};
 					} else {
 						const names: string[] = [];
 						const types: string[] = [];
 						const tmps: string[] = [];
-						const errors: string[] = [];
-						const sizes: string[] = [];
+						const errors: number[] = [];
+						const sizes: number[] = [];
 						for (const part of group) {
 							const f = part as MultipartFilePartWithPath;
 							names.push(f.filename);
 							types.push(f.contentType);
 							tmps.push(f.tmpPath);
-							errors.push("0");
-							sizes.push(String(f.bytes.byteLength));
+							errors.push(0);
+							sizes.push(f.bytes.byteLength);
 						}
 						filesTree[bareName] = {
 							name: names,
