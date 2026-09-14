@@ -12,7 +12,7 @@ import {ensureDir, getPhp, retirePhp, withPhpLock, type PhpBinary} from "./php-i
 import {DEFAULT_STATIC_EXTENSIONS, isStaticRequest} from "./static";
 
 /** Binding type identifiers, parallel to wrangler.jsonc binding kinds. */
-export type BindingKind = "d1" | "r2" | "kv" | "var" | "secret";
+export type BindingKind = "d1" | "r2" | "kv" | "send_email" | "var" | "secret";
 
 /** Map from binding name (matches wrangler.jsonc and the user's env) to
  *  binding kind. Names are exposed to PHP via `$env-><Name>`. */

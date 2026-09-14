@@ -39,9 +39,10 @@ if (!class_exists(__NAMESPACE__ . '\\Env')) {
             }
             $d = $this->declarations[$name];
             $value = match ($d['type']) {
-                'd1'      => new D1Database($d['binding']),
-                'r2'      => new R2Bucket($d['binding']),
-                'kv'      => new KVNamespace($d['binding']),
+                'd1'         => new D1Database($d['binding']),
+                'r2'         => new R2Bucket($d['binding']),
+                'kv'         => new KVNamespace($d['binding']),
+                'send_email' => new SendEmailBinding($d['binding']),
                 'var',
                 'secret'  => $d['value'] ?? null,
                 default   => throw new \RuntimeException("workers-php: binding '$name' has unknown type '{$d['type']}'"),
@@ -577,6 +578,21 @@ if (!class_exists(__NAMESPACE__ . '\\Env')) {
          */
         public function list(array $opts = []): array {
             return \workers_php_call('kv_list', [$this->binding, $opts]);
+        }
+    }
+
+    /** Wraps a Workers send_email binding (Email Service). */
+    final class SendEmailBinding {
+        public function __construct(public readonly string $binding) {}
+
+        /**
+         * Send via the structured message builder (no raw MIME).
+         *
+         * @param array{to?: string|string[], from: string, subject: string, html?: string, text?: string} $message
+         * @return array{messageId?: string} The binding's send response.
+         */
+        public function send(array $message): array {
+            return \workers_php_call('email_send', [$this->binding, $message]) ?? [];
         }
     }
 

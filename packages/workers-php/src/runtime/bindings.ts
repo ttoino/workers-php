@@ -286,6 +286,19 @@ export const makeBindingDispatch = (
 		};
 	};
 
+	if (kinds.has("send_email")) {
+		const email = (name: string): {send: (msg: unknown) => Promise<unknown>} => {
+			const b = envMap[name] as {send?: unknown} | undefined;
+			if (!b || typeof b.send !== "function") {
+				throw new Error(`workers-php: send_email binding '${name}' is missing or wrong type on env`);
+			}
+			return b as {send: (msg: unknown) => Promise<unknown>};
+		};
+		out.email_send = async (binding: string, message: object) => {
+			return await email(binding).send(message);
+		};
+	}
+
 	return out;
 };
 
