@@ -39,6 +39,12 @@ export interface MountOptions {
 // once per (appRoot, assetPath) pair.
 const mounts = new Map<string, Promise<void>>();
 
+// The cache keys on app paths, not the instance — drop it when the PHP
+// instance is replaced, or the fresh FS would never be re-populated.
+export const clearMountCache = (): void => {
+	mounts.clear();
+};
+
 const fetchAssetBytes = async (
 	assets: Fetcher,
 	assetPath: string,

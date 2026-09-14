@@ -7,8 +7,8 @@ import {PhpWeb} from "../wasm/PhpWeb.mjs";
 import {buildEnvDeclaration, buildSessionDeclaration, makeBindingDispatch} from "./bindings";
 import {setBridgeMethods, type BridgeMethods} from "./bridge";
 import {BodyTooLargeError, buildCapture, buildPrelude, makeCaptureSlot, phpQuoteString} from "./cgi";
-import {ensureMounted, RUNTIME_LIBRARY_PATH} from "./mount";
-import {ensureDir, getPhp, withPhpLock, type PhpBinary} from "./php-instance";
+import {clearMountCache, ensureMounted, RUNTIME_LIBRARY_PATH} from "./mount";
+import {ensureDir, getPhp, retirePhp, withPhpLock, type PhpBinary} from "./php-instance";
 import {DEFAULT_STATIC_EXTENSIONS, isStaticRequest} from "./static";
 
 /** Binding type identifiers, parallel to wrangler.jsonc binding kinds. */
@@ -147,8 +147,15 @@ export interface PhpHandlerOptions {
 	 *  `session_start()` calls keep working unchanged. */
 	sessionHandler?: SessionHandlerConfig;
 
+	/** Replace the PHP instance after this many requests. wasm linear
+	 *  memory only grows, so heavy apps (frameworks) can otherwise push a
+	 *  long-lived isolate past the 128 MiB limit within a few requests.
+	 *  Requires stateless sessions (e.g. Laravel's cookie driver) — the
+	 *  wasm FS dies with the instance. Default: 0 (never retire). */
+	maxRequestsPerInstance?: number;
+
 	/** Optional log hook. Default: console.warn for stderr only. */
-	onLog?: (level: "stdout" | "stderr" | "mount", text: string) => void;
+	onLog?: (level: "stdout" | "stderr" | "mount" | "php", text: string) => void;
 }
 
 interface ResolvedOptions {
@@ -171,7 +178,8 @@ interface ResolvedOptions {
 	bindings: BindingDeclarations;
 	staticRoutes: readonly StaticRoute[];
 	sessionHandler: SessionHandlerConfig | undefined;
-	onLog: (level: "stdout" | "stderr" | "mount", text: string) => void;
+	maxRequestsPerInstance: number;
+	onLog: (level: "stdout" | "stderr" | "mount" | "php", text: string) => void;
 }
 
 const resolveOptions = (o: PhpHandlerOptions = {}): ResolvedOptions => {
@@ -195,11 +203,13 @@ const resolveOptions = (o: PhpHandlerOptions = {}): ResolvedOptions => {
 		bindings: o.bindings ?? {},
 		staticRoutes: o.staticRoutes ?? [],
 		sessionHandler: o.sessionHandler,
+		maxRequestsPerInstance: o.maxRequestsPerInstance ?? 0,
 		onLog:
 			o.onLog ??
 			((level, text) => {
 				if (level === "stderr") console.warn("[php]", text);
-				else if (level === "mount") console.log("[workers-php]", text);
+				else if (level === "mount" || level === "php")
+					console.log("[workers-php]", text);
 			}),
 	};
 };
@@ -464,15 +474,24 @@ export const createPhpHandler = (
 			}
 
 			return await withPhpLock(async () => {
-				const php = getPhp();
-				await ensureMounted(php, assets, {
-					appRoot: opts.appRoot,
-					assetPath: opts.appAssetPath,
-					stripPrefix: opts.stripPrefix,
-					envOverrides: opts.envOverrides,
-					log: (m) => opts.onLog("mount", m),
-				});
-				return await runPhp(request, env, opts);
+				try {
+					const php = getPhp();
+					await ensureMounted(php, assets, {
+						appRoot: opts.appRoot,
+						assetPath: opts.appAssetPath,
+						stripPrefix: opts.stripPrefix,
+						envOverrides: opts.envOverrides,
+						log: (m) => opts.onLog("mount", m),
+					});
+					return await runPhp(request, env, opts);
+				} finally {
+					// Retire after the response is built; failed requests count
+					// too — a crash may have grown the heap the most.
+					if (retirePhp(opts.maxRequestsPerInstance)) {
+						clearMountCache();
+						opts.onLog("php", "instance retired (maxRequestsPerInstance)");
+					}
+				}
 			});
 		} catch (err) {
 			const e = err as Error;

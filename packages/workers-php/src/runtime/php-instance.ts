@@ -41,6 +41,22 @@ export const getPhp = (): PhpWeb => {
 	return phpInstance;
 };
 
+let requestsServed = 0;
+
+// wasm linear memory only grows within an instance; refresh() resets PHP
+// globals but not the heap. Dropping the instance lets V8 GC the whole
+// module — the only way to reclaim memory inside a long-lived isolate.
+// Any per-instance caches (e.g. the mount cache) must be cleared by the
+// caller. File-backed session state on the wasm FS dies with the instance.
+export const retirePhp = (maxRequestsPerInstance: number): boolean => {
+	if (maxRequestsPerInstance <= 0) return false;
+	requestsServed += 1;
+	if (requestsServed < maxRequestsPerInstance) return false;
+	requestsServed = 0;
+	phpInstance = null;
+	return true;
+};
+
 let requestChain: Promise<unknown> = Promise.resolve();
 
 export const withPhpLock = <T>(fn: () => Promise<T>): Promise<T> => {
