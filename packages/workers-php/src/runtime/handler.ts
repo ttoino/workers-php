@@ -290,7 +290,6 @@ const runPhp = async (
 			});
 		} catch (e) {
 			if (e instanceof BodyTooLargeError) {
-				capture.stop();
 				return new Response(
 					`Request body too large: ${e.received} B exceeds limit ${e.limit} B`,
 					{status: 413, headers: {"Content-Type": "text/plain; charset=utf-8"}},
@@ -377,12 +376,10 @@ while (\\ob_get_level() > 0) {
 			}
 		}
 	} finally {
-		// FIXME: capture.stop() below only runs on the happy path; a throw
-		// inside this block leaks the output/error event listeners onto the
-		// shared PhpWeb instance for the isolate's lifetime.
+		// Listeners attach to the shared instance — stop on every exit
+		// path or they accumulate (with their chunks arrays) per request.
+		capture.stop();
 	}
-
-	capture.stop();
 
 	const captured = captureSlot.value;
 	const body = captured?.body ?? "";
