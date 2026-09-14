@@ -26,6 +26,12 @@ export interface StaticRoute {
 	from: string;
 	fallbackToAssets?: boolean;
 	/**
+	 * Look up R2 objects by the path minus `pathPrefix` instead of the
+	 * full path, so keys can stay disk-relative (e.g. /storage/users/x.webp
+	 * → users/x.webp).
+	 */
+	stripPrefix?: boolean;
+	/**
 	 * On R2 miss, rewrite the request path before falling back to ASSETS.
 	 * Useful for serving a stable placeholder (e.g. {id}.webp → default.svg)
 	 * from ASSETS when the bucket has no object yet. Return null/undefined
@@ -440,7 +446,9 @@ export const createPhpHandler = (
 						| {get: (key: string) => Promise<{body: ReadableStream; httpEtag?: string; writeHttpMetadata?: (h: Headers) => void} | null>}
 						| undefined;
 					if (r2 && typeof r2.get === "function") {
-						const key = url.pathname.slice(1);
+						const key = route.stripPrefix
+							? url.pathname.slice(route.pathPrefix.length)
+							: url.pathname.slice(1);
 						const obj = await r2.get(key);
 						if (obj) {
 							const headers = new Headers();
