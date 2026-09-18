@@ -17,7 +17,9 @@
 	"main": "worker.ts",
 	"compatibility_date": "2026-05-26",
 	"observability": {
-		"enabled": true
+		"enabled": true,
+		"logs": { "enabled": true },
+		"traces": { "enabled": true }
 	},
 	"upload_source_maps": true,
 	"compatibility_flags": [
