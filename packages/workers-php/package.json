@@ -30,9 +30,9 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ttoino/php-wasm-worker.git",
+    "url": "git+https://github.com/ttoino/workers-php.git",
     "directory": "packages/workers-php"
   },
-  "homepage": "https://github.com/ttoino/php-wasm-worker#readme",
-  "bugs": "https://github.com/ttoino/php-wasm-worker/issues"
+  "homepage": "https://github.com/ttoino/workers-php#readme",
+  "bugs": "https://github.com/ttoino/workers-php/issues"
 }

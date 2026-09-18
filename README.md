@@ -1,4 +1,4 @@
-# php-wasm-worker
+# workers-php
 
 Monorepo containing the **[`workers-php`](packages/workers-php)** library —
 which lets you run a PHP project on Cloudflare Workers, with the project

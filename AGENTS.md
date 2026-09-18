@@ -1,4 +1,4 @@
-# php-wasm-worker
+# workers-php
 
 PHP 8.5 running on Cloudflare Workers, via [seanmorris/php-wasm](https://github.com/seanmorris/php-wasm).
 
