@@ -1,0 +1,28 @@
+{
+    "name": "workers-php",
+    "version": "0.0.0",
+    "description": "PHP on Cloudflare Workers, Durable Objects and Containers",
+    "license": "Apache-2.0",
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts"
+    },
+    "files": [
+        "src",
+        "php",
+        "etc"
+    ],
+    "scripts": {
+        "check": "tsc --noEmit",
+        "test": "vitest run"
+    },
+    "dependencies": {
+        "@cloudflare/containers": "^0.3.7",
+        "mimetext": "^3.0.27"
+    },
+    "devDependencies": {
+        "@cloudflare/workers-types": "^4.20250913.0",
+        "typescript": "^7.0.2",
+        "vitest": "^3.2.4"
+    }
+}
