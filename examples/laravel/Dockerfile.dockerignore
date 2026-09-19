@@ -1,0 +1,8 @@
+**/vendor/
+**/node_modules/
+**/.wrangler/
+examples/laravel/bootstrap/cache/*.php
+examples/laravel/storage/logs/*.log
+examples/laravel/.env
+examples/laravel/.dev.vars
+examples/laravel/dist/

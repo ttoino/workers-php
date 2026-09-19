@@ -1,0 +1,20 @@
+{
+    "name": "workers-php-example-laravel",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "build": "wrangler deploy --dry-run --outdir dist",
+        "check": "tsc --noEmit",
+        "deploy": "wrangler deploy",
+        "dev": "wrangler dev",
+        "gen:cf-types": "wrangler types"
+    },
+    "dependencies": {
+        "workers-php": "workspace:*"
+    },
+    "devDependencies": {
+        "@cloudflare/workers-types": "^4.20250913.0",
+        "typescript": "^7.0.2",
+        "wrangler": "^4.37.0"
+    }
+}

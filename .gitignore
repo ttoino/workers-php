@@ -4,3 +4,9 @@ dist/
 .build-cache/
 vendor/
 *.log
+vendor/
+.env
+.dev.vars
+worker-configuration.d.ts
+public/build/
+storage/
