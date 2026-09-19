@@ -35,4 +35,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Publish to npm
-        run: pnpm --filter workers-php publish --access public --no-git-checks
+        run: |
+          pkg=$(node -p "require('./packages/workers-php/package.json').version")
+          if pnpm view "workers-php@${pkg}" version > /dev/null 2>&1; then
+              echo "::notice::workers-php@${pkg} is already on the registry; skipping"
+              exit 0
+          fi
+          pnpm --filter workers-php publish --access public --no-git-checks
