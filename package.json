@@ -10,5 +10,15 @@
         "lint": "eslint .",
         "lint:fix": "eslint . --fix",
         "test": "pnpm --filter workers-php run test"
+    },
+    "devDependencies": {
+        "@eslint/compat": "^2.1.1",
+        "@eslint/js": "^10.0.1",
+        "eslint": "^10.10.0",
+        "eslint-config-prettier": "^10.1.8",
+        "eslint-plugin-perfectionist": "^5.11.1",
+        "globals": "^17.12.0",
+        "prettier": "^3.9.8",
+        "typescript-eslint": "^8.70.0"
     }
 }
