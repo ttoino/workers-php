@@ -1,0 +1,18 @@
+# Reference Caddyfile, equivalent to the one baked into the FrankenPHP
+# image (/etc/frankenphp/Caddyfile). Ship it only to customize; otherwise
+# the image default needs no copy.
+
+{
+	{$CADDY_GLOBAL_OPTIONS}
+	frankenphp {
+		{$FRANKENPHP_CONFIG}
+	}
+}
+
+{$CADDY_EXTRA_CONFIG}
+
+{$SERVER_NAME:localhost} {
+	root {$SERVER_ROOT:public/}
+	encode zstd br gzip
+	php_server
+}
