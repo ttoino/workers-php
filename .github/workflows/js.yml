@@ -41,6 +41,9 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Secrets are gitignored; wrangler types picks them up from
+      # .dev.vars, so seed a placeholder before generating Env.
+      - run: echo "APP_KEY=ci-placeholder" > examples/laravel/.dev.vars
       - run: pnpm --filter workers-php-example-laravel run gen:cf-types
       - run: pnpm run check
 
