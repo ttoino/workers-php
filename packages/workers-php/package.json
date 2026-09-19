@@ -3,6 +3,11 @@
     "version": "1.0.0",
     "description": "PHP on Cloudflare Workers, Durable Objects and Containers",
     "license": "Apache-2.0",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/ttoino/workers-php.git",
+        "directory": "packages/workers-php"
+    },
     "type": "module",
     "exports": {
         ".": "./src/index.ts"
