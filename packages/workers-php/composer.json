@@ -1,0 +1,30 @@
+{
+    "name": "workers-php/runtime",
+    "description": "PHP runtime for workers-php: D1, R2 and Mail HTTP clients plus Laravel and Symfony integrations.",
+    "license": "Apache-2.0",
+    "require": {
+        "php": "^8.2",
+        "ext-curl": "*"
+    },
+    "require-dev": {
+        "laravel/pint": "^1.13",
+        "phpunit/phpunit": "^11.5"
+    },
+    "autoload": {
+        "psr-4": {
+            "WorkersPhp\\": "php/base/",
+            "WorkersPhp\\Laravel\\": "php/laravel/",
+            "WorkersPhp\\Symfony\\": "php/symfony/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "WorkersPhp\\Tests\\": "php/tests/"
+        }
+    },
+    "scripts": {
+        "format": "pint --test",
+        "format:fix": "pint",
+        "test": "phpunit"
+    }
+}
