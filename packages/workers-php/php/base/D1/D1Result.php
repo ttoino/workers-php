@@ -6,7 +6,7 @@ namespace WorkersPhp\D1;
 final class D1Result
 {
     /**
-     * @param array<int, array<string, mixed>> $results
+     * @param  array<int, array<string, mixed>>  $results
      */
     public function __construct(
         public readonly array $results,

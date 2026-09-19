@@ -17,25 +17,29 @@ final class MailHttpClient
 
     public function __construct(public readonly string $endpoint, ?callable $transport = null)
     {
-        $this->transport = $transport ?? new CurlTransport();
+        $this->transport = $transport ?? new CurlTransport;
     }
 
     /** @param string[] $to */
     public function send(string $from, array $to, string $subject, ?string $html = null, ?string $text = null): void
     {
         $payload = ['from' => $from, 'to' => array_values($to), 'subject' => $subject];
-        if ($html !== null) $payload['html'] = $html;
-        if ($text !== null) $payload['text'] = $text;
+        if ($html !== null) {
+            $payload['html'] = $html;
+        }
+        if ($text !== null) {
+            $payload['text'] = $text;
+        }
 
         [$status, , $raw] = ($this->transport)(
             'POST',
-            $this->endpoint . '/send',
+            $this->endpoint.'/send',
             ['Content-Type: application/json'],
             json_encode($payload),
         );
 
         if ($status >= 400) {
-            throw new \RuntimeException("Email endpoint error (HTTP $status): " . substr($raw, 0, 500));
+            throw new \RuntimeException("Email endpoint error (HTTP $status): ".substr($raw, 0, 500));
         }
     }
 }

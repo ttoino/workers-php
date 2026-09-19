@@ -10,9 +10,13 @@ namespace WorkersPhp\D1;
 final class HttpD1PDOStatement extends \PDOStatement implements \IteratorAggregate
 {
     private ?D1Result $result = null;
+
     private int $cursor = 0;
+
     private int $fetchMode;
+
     private HttpD1PDO $pdo;
+
     private string $sql;
 
     /** @var array<int|string, mixed> */
@@ -45,7 +49,9 @@ final class HttpD1PDOStatement extends \PDOStatement implements \IteratorAggrega
             return $this->result->success;
         } catch (\Throwable $e) {
             $this->pdo->setErrorInfo(['HY000', null, $e->getMessage()]);
-            if ($this->pdo->getAttribute(\PDO::ATTR_ERRMODE) === \PDO::ERRMODE_EXCEPTION) throw $e;
+            if ($this->pdo->getAttribute(\PDO::ATTR_ERRMODE) === \PDO::ERRMODE_EXCEPTION) {
+                throw $e;
+            }
 
             return false;
         }
@@ -66,9 +72,13 @@ final class HttpD1PDOStatement extends \PDOStatement implements \IteratorAggrega
 
     public function fetch(int $mode = \PDO::FETCH_DEFAULT, int $cursorOrientation = \PDO::FETCH_ORI_NEXT, int $cursorOffset = 0): mixed
     {
-        if (!$this->result) return false;
+        if (! $this->result) {
+            return false;
+        }
         $row = $this->result->results[$this->cursor] ?? null;
-        if ($row === null) return false;
+        if ($row === null) {
+            return false;
+        }
         $this->cursor++;
         $effective = $mode && $mode !== \PDO::FETCH_DEFAULT ? $mode : $this->fetchMode;
 
@@ -77,7 +87,9 @@ final class HttpD1PDOStatement extends \PDOStatement implements \IteratorAggrega
 
     public function fetchAll(int $mode = \PDO::FETCH_DEFAULT, mixed ...$args): array
     {
-        if (!$this->result) return [];
+        if (! $this->result) {
+            return [];
+        }
         $effective = $mode && $mode !== \PDO::FETCH_DEFAULT ? $mode : $this->fetchMode;
 
         return array_map(fn ($r) => $this->shapeRow($r, $effective), array_slice($this->result->results, $this->cursor));
@@ -86,7 +98,9 @@ final class HttpD1PDOStatement extends \PDOStatement implements \IteratorAggrega
     public function fetchColumn(int $column = 0): mixed
     {
         $row = $this->fetch(\PDO::FETCH_NUM);
-        if ($row === false) return false;
+        if ($row === false) {
+            return false;
+        }
 
         return $row[$column] ?? null;
     }
@@ -94,11 +108,17 @@ final class HttpD1PDOStatement extends \PDOStatement implements \IteratorAggrega
     public function fetchObject(?string $class = 'stdClass', array $constructorArgs = []): object|false
     {
         $row = $this->fetch(\PDO::FETCH_ASSOC);
-        if ($row === false) return false;
+        if ($row === false) {
+            return false;
+        }
         $class = $class ?? 'stdClass';
-        if ($class === 'stdClass') return (object) $row;
+        if ($class === 'stdClass') {
+            return (object) $row;
+        }
         $obj = new $class(...$constructorArgs);
-        foreach ($row as $k => $v) $obj->$k = $v;
+        foreach ($row as $k => $v) {
+            $obj->$k = $v;
+        }
 
         return $obj;
     }
@@ -132,7 +152,9 @@ final class HttpD1PDOStatement extends \PDOStatement implements \IteratorAggrega
 
     public function getIterator(): \Generator
     {
-        while (($row = $this->fetch()) !== false) yield $row;
+        while (($row = $this->fetch()) !== false) {
+            yield $row;
+        }
     }
 
     private function shapeRow(array $row, int $mode): mixed

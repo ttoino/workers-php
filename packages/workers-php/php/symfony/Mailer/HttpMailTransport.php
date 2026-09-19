@@ -25,12 +25,14 @@ class HttpMailTransport implements TransportInterface
 
     public function send(RawMessage $message, ?Envelope $envelope = null): ?SentMessage
     {
-        if (!$message instanceof Email) {
+        if (! $message instanceof Email) {
             throw new \LogicException('http-mail only supports Symfony Email messages.');
         }
 
         $html = $message->getHtmlBody();
-        if (is_resource($html)) $html = stream_get_contents($html);
+        if (is_resource($html)) {
+            $html = stream_get_contents($html);
+        }
 
         try {
             $this->client->send(

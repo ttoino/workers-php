@@ -15,9 +15,7 @@ final class D1Connection extends SQLiteConnection
         $this->getPdo()->beginTransaction();
     }
 
-    protected function createSavepoint()
-    {
-    }
+    protected function createSavepoint() {}
 
     protected function performRollBack($toLevel)
     {

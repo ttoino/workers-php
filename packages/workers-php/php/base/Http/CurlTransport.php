@@ -32,7 +32,9 @@ final class CurlTransport
                 return strlen($line);
             },
         ]);
-        if ($body !== null) curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
+        if ($body !== null) {
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
+        }
         $raw = curl_exec($ch);
         $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
         curl_close($ch);

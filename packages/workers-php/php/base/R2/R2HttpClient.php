@@ -22,7 +22,7 @@ final class R2HttpClient
 
     public function __construct(public readonly string $endpoint, ?callable $transport = null)
     {
-        $this->transport = $transport ?? new CurlTransport();
+        $this->transport = $transport ?? new CurlTransport;
     }
 
     /** @return array{headers: array<string, string>, body: string}|null null when the key does not exist */
@@ -43,7 +43,7 @@ final class R2HttpClient
 
     public function put(string $key, string $body, ?string $contentType = null): void
     {
-        $this->request('PUT', $this->keyPath($key), $body, $contentType ? ['Content-Type: ' . $contentType] : []);
+        $this->request('PUT', $this->keyPath($key), $body, $contentType ? ['Content-Type: '.$contentType] : []);
     }
 
     public function delete(string ...$keys): void
@@ -61,24 +61,26 @@ final class R2HttpClient
     public function list(string $prefix = '', int $limit = 1000, ?string $cursor = null): array
     {
         $query = ['list' => 1, 'prefix' => $prefix, 'limit' => $limit];
-        if ($cursor) $query['cursor'] = $cursor;
-        [, , $body] = $this->request('GET', '/?' . http_build_query($query));
+        if ($cursor) {
+            $query['cursor'] = $cursor;
+        }
+        [, , $body] = $this->request('GET', '/?'.http_build_query($query));
 
         return json_decode($body, true);
     }
 
     private function keyPath(string $key): string
     {
-        return '/' . str_replace('%2F', '/', rawurlencode(ltrim($key, '/')));
+        return '/'.str_replace('%2F', '/', rawurlencode(ltrim($key, '/')));
     }
 
     /** @return array{0: int, 1: array<string, string>, 2: string} */
     private function request(string $method, string $path, ?string $body = null, array $headers = []): array
     {
-        [$status, $responseHeaders, $responseBody] = ($this->transport)($method, $this->endpoint . $path, $headers, $body);
+        [$status, $responseHeaders, $responseBody] = ($this->transport)($method, $this->endpoint.$path, $headers, $body);
 
         if ($status >= 400 && $status !== 404) {
-            throw new \RuntimeException("R2 endpoint error (HTTP $status): " . substr($responseBody, 0, 500));
+            throw new \RuntimeException("R2 endpoint error (HTTP $status): ".substr($responseBody, 0, 500));
         }
 
         return [$status, $responseHeaders, $responseBody];

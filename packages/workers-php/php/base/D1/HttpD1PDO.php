@@ -12,13 +12,17 @@ namespace WorkersPhp\D1;
 final class HttpD1PDO extends \PDO
 {
     private D1HttpClient $client;
+
     private int $lastInsertId = 0;
+
     private array $errorInfo = ['', null, null];
+
     private array $attributes = [
         \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
         \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
         \PDO::ATTR_CASE => \PDO::CASE_NATURAL,
     ];
+
     private bool $inTxn = false;
 
     public function __construct(string|D1HttpClient $endpoint)
@@ -37,9 +41,15 @@ final class HttpD1PDO extends \PDO
     public function query(string $query, ?int $fetchMode = null, mixed ...$fetchModeArgs): \PDOStatement|false
     {
         $stmt = $this->prepare($query);
-        if ($stmt === false) return false;
-        if ($fetchMode !== null && $stmt instanceof HttpD1PDOStatement) $stmt->setFetchMode($fetchMode);
-        if ($stmt instanceof HttpD1PDOStatement) $stmt->execute();
+        if ($stmt === false) {
+            return false;
+        }
+        if ($fetchMode !== null && $stmt instanceof HttpD1PDOStatement) {
+            $stmt->setFetchMode($fetchMode);
+        }
+        if ($stmt instanceof HttpD1PDOStatement) {
+            $stmt->execute();
+        }
 
         return $stmt;
     }
@@ -50,7 +60,9 @@ final class HttpD1PDO extends \PDO
             return $this->client->exec($statement);
         } catch (\Throwable $e) {
             $this->errorInfo = ['HY000', null, $e->getMessage()];
-            if ($this->attributes[\PDO::ATTR_ERRMODE] === \PDO::ERRMODE_EXCEPTION) throw $e;
+            if ($this->attributes[\PDO::ATTR_ERRMODE] === \PDO::ERRMODE_EXCEPTION) {
+                throw $e;
+            }
 
             return false;
         }
@@ -96,7 +108,7 @@ final class HttpD1PDO extends \PDO
 
     public function quote(string $string, int $type = \PDO::PARAM_STR): string|false
     {
-        return "'" . str_replace("'", "''", $string) . "'";
+        return "'".str_replace("'", "''", $string)."'";
     }
 
     public function setAttribute(int $attribute, mixed $value): bool
