@@ -7,13 +7,18 @@ const jsonRequest = (url: string, body: unknown, method = "POST") =>
 
 describe("d1", () => {
     it("forwards queries with bound params", async () => {
-        const all = vi.fn().mockResolvedValue({ meta: {}, results: [], success: true });
+        const all = vi
+            .fn()
+            .mockResolvedValue({ meta: {}, results: [], success: true });
         const bind = vi.fn().mockReturnValue({ all });
         const prepare = vi.fn().mockReturnValue({ all, bind });
         const handler = d1("DB").handle;
 
         const response = await handler(
-            jsonRequest("http://db.app/query", { params: [1, "x"], sql: "SELECT ?" }),
+            jsonRequest("http://db.app/query", {
+                params: [1, "x"],
+                sql: "SELECT ?",
+            }),
             { DB: { prepare } } as never,
             {} as never,
         );
@@ -29,9 +34,13 @@ describe("d1", () => {
         const bind = vi.fn();
         const prepare = vi.fn().mockReturnValue({ all, bind });
 
-        await d1("DB").handle(jsonRequest("http://db.app/query", { sql: "SELECT 1" }), {
-            DB: { prepare },
-        } as never, {} as never);
+        await d1("DB").handle(
+            jsonRequest("http://db.app/query", { sql: "SELECT 1" }),
+            {
+                DB: { prepare },
+            } as never,
+            {} as never,
+        );
 
         expect(bind).not.toHaveBeenCalled();
         expect(all).toHaveBeenCalled();
@@ -40,7 +49,9 @@ describe("d1", () => {
     it("routes /exec to exec and returns the count", async () => {
         const exec = vi.fn().mockResolvedValue({ count: 3 });
         const response = await d1("DB").handle(
-            jsonRequest("http://db.app/exec", { sql: "CREATE TABLE t (id int)" }),
+            jsonRequest("http://db.app/exec", {
+                sql: "CREATE TABLE t (id int)",
+            }),
             { DB: { exec } } as never,
             {} as never,
         );
@@ -53,12 +64,18 @@ describe("d1", () => {
         const prepare = vi.fn().mockImplementation(() => {
             throw new Error("no such table");
         });
-        const response = await d1("DB").handle(jsonRequest("http://db.app/query", { sql: "SELECT 1" }), {
-            DB: { prepare },
-        } as never, {} as never);
+        const response = await d1("DB").handle(
+            jsonRequest("http://db.app/query", { sql: "SELECT 1" }),
+            {
+                DB: { prepare },
+            } as never,
+            {} as never,
+        );
 
         expect(response.status).toBe(500);
-        expect(await response.json()).toEqual({ error: "Error: no such table" });
+        expect(await response.json()).toEqual({
+            error: "Error: no such table",
+        });
     });
 });
 
@@ -66,14 +83,19 @@ describe("r2", () => {
     const object = (body: string) => ({
         body,
         httpEtag: '"abc"',
-        writeHttpMetadata: (headers: Headers) => headers.set("Content-Type", "text/plain"),
+        writeHttpMetadata: (headers: Headers) =>
+            headers.set("Content-Type", "text/plain"),
     });
 
     it("GETs an object with its metadata", async () => {
         const get = vi.fn().mockResolvedValue(object("hello"));
-        const response = await r2("FILES").handle(new Request("http://files.app/a.txt"), {
-            FILES: { get },
-        } as never, {} as never);
+        const response = await r2("FILES").handle(
+            new Request("http://files.app/a.txt"),
+            {
+                FILES: { get },
+            } as never,
+            {} as never,
+        );
 
         expect(get).toHaveBeenCalledWith("a.txt");
         expect(response.status).toBe(200);
@@ -83,9 +105,13 @@ describe("r2", () => {
 
     it("404s missing keys", async () => {
         const get = vi.fn().mockResolvedValue(null);
-        const response = await r2("FILES").handle(new Request("http://files.app/missing"), {
-            FILES: { get },
-        } as never, {} as never);
+        const response = await r2("FILES").handle(
+            new Request("http://files.app/missing"),
+            {
+                FILES: { get },
+            } as never,
+            {} as never,
+        );
 
         expect(response.status).toBe(404);
     });
@@ -96,12 +122,18 @@ describe("r2", () => {
             size: 42,
             uploaded: new Date("2026-01-01T00:00:00Z"),
         });
-        const response = await r2("FILES").handle(new Request("http://files.app/a.txt", { method: "HEAD" }), {
-            FILES: { head },
-        } as never, {} as never);
+        const response = await r2("FILES").handle(
+            new Request("http://files.app/a.txt", { method: "HEAD" }),
+            {
+                FILES: { head },
+            } as never,
+            {} as never,
+        );
 
         expect(response.headers.get("Content-Length")).toBe("42");
-        expect(response.headers.get("Last-Modified")).toBe("Thu, 01 Jan 2026 00:00:00 GMT");
+        expect(response.headers.get("Last-Modified")).toBe(
+            "Thu, 01 Jan 2026 00:00:00 GMT",
+        );
     });
 
     it("PUTs with the content type", async () => {
@@ -147,7 +179,11 @@ describe("r2", () => {
             {} as never,
         );
 
-        expect(list).toHaveBeenCalledWith({ cursor: "cur", limit: 5, prefix: "pub" });
+        expect(list).toHaveBeenCalledWith({
+            cursor: "cur",
+            limit: 5,
+            prefix: "pub",
+        });
         expect(await response.json()).toEqual({
             cursor: "next",
             objects: [{ key: "a", size: 1 }],
@@ -177,7 +213,11 @@ describe("mail", () => {
     it("answers 500 when sending fails", async () => {
         const send = vi.fn().mockRejectedValue(new Error("sender not allowed"));
         const response = await mail("EMAIL").handle(
-            jsonRequest("http://email.app/send", { from: "x@x.dev", subject: "", to: ["a@x.dev"] }),
+            jsonRequest("http://email.app/send", {
+                from: "x@x.dev",
+                subject: "",
+                to: ["a@x.dev"],
+            }),
             { EMAIL: { send } } as never,
             {} as never,
         );
@@ -190,7 +230,12 @@ describe("phpOutbound", () => {
     it("derives hosts from binding names", () => {
         const map = phpOutbound(d1("DB"), r2("FILES"), mail("EMAIL"), log());
 
-        expect(Object.keys(map).sort()).toEqual(["db.app", "email.app", "files.app", "log.app"]);
+        expect(Object.keys(map).sort()).toEqual([
+            "db.app",
+            "email.app",
+            "files.app",
+            "log.app",
+        ]);
     });
 
     it("honours host overrides", () => {

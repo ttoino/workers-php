@@ -1,5 +1,16 @@
-import { getContainer } from "@cloudflare/containers";
 import type { Container } from "@cloudflare/containers";
+
+import { getContainer } from "@cloudflare/containers";
+
+export interface BootHoldOptions {
+    deadlineMs?: number;
+}
+
+export type PhpWorkerEnv<C extends string, B extends string> = Record<
+    B,
+    R2Bucket
+> &
+    Record<C, DurableObjectNamespace<Container>>;
 
 export interface PhpWorkerOptions<C extends string, B extends string> {
     /** Deadline for holding requests while a cold container boots. */
@@ -10,13 +21,6 @@ export interface PhpWorkerOptions<C extends string, B extends string> {
     name?: string;
     /** Serve objects from an R2 bucket under a URL prefix, no boot needed. */
     storage?: { bucket: B; prefix: string };
-}
-
-export type PhpWorkerEnv<C extends string, B extends string> = Record<C, DurableObjectNamespace<Container>> &
-    Record<B, R2Bucket>;
-
-export interface BootHoldOptions {
-    deadlineMs?: number;
 }
 
 /**
@@ -39,7 +43,10 @@ export const holdThroughBoot = async (
         const retryAfter = Number(header);
         if (!Number.isFinite(retryAfter)) break;
         await new Promise((resolve) =>
-            setTimeout(resolve, Math.min(Math.max(retryAfter * 1000, 500), 5_000)),
+            setTimeout(
+                resolve,
+                Math.min(Math.max(retryAfter * 1000, 500), 5_000),
+            ),
         );
         response = await fetchRequest(request.clone());
     }
@@ -52,7 +59,7 @@ export const serveR2 = async (
     request: Request,
     bucket: R2Bucket,
     prefix: string,
-): Promise<Response | null> => {
+): Promise<null | Response> => {
     const url = new URL(request.url);
     if (!url.pathname.startsWith(prefix)) return null;
     if (request.method !== "GET" && request.method !== "HEAD") return null;
@@ -74,7 +81,8 @@ export const serveR2 = async (
     object.writeHttpMetadata(headers);
     headers.set("etag", object.httpEtag);
     headers.set("Cache-Control", "public, max-age=300");
-    if (!("body" in object)) return new Response(null, { status: 304, headers });
+    if (!("body" in object))
+        return new Response(null, { headers, status: 304 });
 
     return new Response(object.body, { headers });
 };
@@ -88,20 +96,31 @@ export const serveR2 = async (
 export const phpWorker = <C extends string, B extends string = never>(
     options: PhpWorkerOptions<C, B>,
 ): ExportedHandler<PhpWorkerEnv<C, B>> => ({
-        async fetch(request, env) {
-            if (options.storage) {
-                const bucket: R2Bucket | undefined = env[options.storage.bucket];
-                if (!bucket) throw new Error(`workers-php: no binding named "${options.storage.bucket}"`);
-                const served = await serveR2(request, bucket, options.storage.prefix);
-                if (served) return served;
-            }
+    async fetch(request, env) {
+        if (options.storage) {
+            const bucket: R2Bucket | undefined = env[options.storage.bucket];
+            if (!bucket)
+                throw new Error(
+                    `workers-php: no binding named "${options.storage.bucket}"`,
+                );
+            const served = await serveR2(
+                request,
+                bucket,
+                options.storage.prefix,
+            );
+            if (served) return served;
+        }
 
-            const namespace: DurableObjectNamespace<Container> | undefined = env[options.container];
-            if (!namespace) throw new Error(`workers-php: no binding named "${options.container}"`);
-            const container = getContainer(namespace, options.name ?? "default");
+        const namespace: DurableObjectNamespace<Container> | undefined =
+            env[options.container];
+        if (!namespace)
+            throw new Error(
+                `workers-php: no binding named "${options.container}"`,
+            );
+        const container = getContainer(namespace, options.name ?? "default");
 
-            return holdThroughBoot((req) => container.fetch(req), request, {
-                deadlineMs: options.bootDeadlineMs,
-            });
-        },
-    });
+        return holdThroughBoot((req) => container.fetch(req), request, {
+            deadlineMs: options.bootDeadlineMs,
+        });
+    },
+});

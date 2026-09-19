@@ -1,5 +1,6 @@
-import { Container } from "@cloudflare/containers";
 import type { OutboundHandler } from "@cloudflare/containers";
+
+import { Container } from "@cloudflare/containers";
 import { EmailMessage } from "cloudflare:email";
 import { createMimeMessage } from "mimetext";
 
@@ -16,7 +17,8 @@ const defaultHost = (binding: string) => `${binding.toLowerCase()}.app`;
 
 const binding = <T, K extends string>(env: Record<K, T>, name: K): T => {
     const value = env[name];
-    if (value === undefined) throw new Error(`workers-php: no binding named "${name}"`);
+    if (value === undefined)
+        throw new Error(`workers-php: no binding named "${name}"`);
     return value;
 };
 
@@ -30,24 +32,31 @@ export const d1 = <K extends string>(
     name: K,
     options: OutboundOptions = {},
 ): Outbound<Record<K, D1Database>> => ({
-        handle: async (request, env) => {
-            try {
-                const db = binding(env, name);
-                const url = new URL(request.url);
-                const body = (await request.json()) as { params?: unknown[]; sql: string };
-                if (url.pathname === "/exec") {
-                    return Response.json(await db.exec(body.sql));
-                }
-                const statement = db.prepare(body.sql);
-                return Response.json(
-                    await (body.params?.length ? statement.bind(...body.params) : statement).all(),
-                );
-            } catch (error) {
-                return Response.json({ error: String(error) }, { status: 500 });
+    handle: async (request, env) => {
+        try {
+            const db = binding(env, name);
+            const url = new URL(request.url);
+            const body = (await request.json()) as {
+                params?: unknown[];
+                sql: string;
+            };
+            if (url.pathname === "/exec") {
+                return Response.json(await db.exec(body.sql));
             }
-        },
-        host: options.host ?? defaultHost(name),
-    });
+            const statement = db.prepare(body.sql);
+            return Response.json(
+                await (
+                    body.params?.length
+                        ? statement.bind(...body.params)
+                        : statement
+                ).all(),
+            );
+        } catch (error) {
+            return Response.json({ error: String(error) }, { status: 500 });
+        }
+    },
+    host: options.host ?? defaultHost(name),
+});
 
 /**
  * REST-ish object protocol the PHP R2 client expects: GET/HEAD/PUT/DELETE
@@ -58,60 +67,64 @@ export const r2 = <K extends string>(
     name: K,
     options: OutboundOptions = {},
 ): Outbound<Record<K, R2Bucket>> => ({
-        handle: async (request, env) => {
-            const bucket = binding(env, name);
-            const url = new URL(request.url);
+    handle: async (request, env) => {
+        const bucket = binding(env, name);
+        const url = new URL(request.url);
 
-            if (url.searchParams.has("list")) {
-                const page = await bucket.list({
-                    cursor: url.searchParams.get("cursor") ?? undefined,
-                    limit: Number(url.searchParams.get("limit") ?? 1000),
-                    prefix: url.searchParams.get("prefix") ?? undefined,
-                });
-                return Response.json({
-                    cursor: page.truncated ? page.cursor : null,
-                    objects: page.objects.map((object) => ({ key: object.key, size: object.size })),
-                    truncated: page.truncated,
-                });
-            }
+        if (url.searchParams.has("list")) {
+            const page = await bucket.list({
+                cursor: url.searchParams.get("cursor") ?? undefined,
+                limit: Number(url.searchParams.get("limit") ?? 1000),
+                prefix: url.searchParams.get("prefix") ?? undefined,
+            });
+            return Response.json({
+                cursor: page.truncated ? page.cursor : null,
+                objects: page.objects.map((object) => ({
+                    key: object.key,
+                    size: object.size,
+                })),
+                truncated: page.truncated,
+            });
+        }
 
-            const key = decodeURIComponent(url.pathname.slice(1));
-            const headers = new Headers();
-            switch (request.method) {
-                case "GET": {
-                    const object = await bucket.get(key);
-                    if (!object) return new Response("Not found", { status: 404 });
-                    object.writeHttpMetadata(headers);
-                    return new Response(object.body, { headers });
-                }
-                case "HEAD": {
-                    const object = await bucket.head(key);
-                    if (!object) return new Response("Not found", { status: 404 });
-                    object.writeHttpMetadata(headers);
-                    headers.set("Content-Length", String(object.size));
-                    headers.set("Last-Modified", object.uploaded.toUTCString());
-                    return new Response(null, { headers });
-                }
-                case "PUT":
-                    await bucket.put(key, request.body, {
-                        httpMetadata: {
-                            contentType: request.headers.get("Content-Type") ?? undefined,
-                        },
-                    });
-                    return new Response("ok");
-                case "DELETE": {
-                    const batch = (await request.json().catch(() => null)) as {
-                        keys?: string[];
-                    } | null;
-                    await bucket.delete(batch?.keys ?? key);
-                    return new Response("ok");
-                }
-                default:
-                    return new Response("Method not allowed", { status: 405 });
+        const key = decodeURIComponent(url.pathname.slice(1));
+        const headers = new Headers();
+        switch (request.method) {
+            case "DELETE": {
+                const batch = (await request.json().catch(() => null)) as {
+                    keys?: string[];
+                } | null;
+                await bucket.delete(batch?.keys ?? key);
+                return new Response("ok");
             }
-        },
-        host: options.host ?? defaultHost(name),
-    });
+            case "GET": {
+                const object = await bucket.get(key);
+                if (!object) return new Response("Not found", { status: 404 });
+                object.writeHttpMetadata(headers);
+                return new Response(object.body, { headers });
+            }
+            case "HEAD": {
+                const object = await bucket.head(key);
+                if (!object) return new Response("Not found", { status: 404 });
+                object.writeHttpMetadata(headers);
+                headers.set("Content-Length", String(object.size));
+                headers.set("Last-Modified", object.uploaded.toUTCString());
+                return new Response(null, { headers });
+            }
+            case "PUT":
+                await bucket.put(key, request.body, {
+                    httpMetadata: {
+                        contentType:
+                            request.headers.get("Content-Type") ?? undefined,
+                    },
+                });
+                return new Response("ok");
+            default:
+                return new Response("Method not allowed", { status: 405 });
+        }
+    },
+    host: options.host ?? defaultHost(name),
+});
 
 /**
  * Structured mail protocol: POST {host}/send with
@@ -123,32 +136,43 @@ export const mail = <K extends string>(
     name: K,
     options: OutboundOptions = {},
 ): Outbound<Record<K, SendEmail>> => ({
-        handle: async (request, env) => {
-            try {
-                const email = binding(env, name);
-                const { from, to, subject, html, text } = (await request.json()) as {
+    handle: async (request, env) => {
+        try {
+            const email = binding(env, name);
+            const { from, html, subject, text, to } =
+                (await request.json()) as {
                     from: string;
                     html?: string;
                     subject: string;
                     text?: string;
                     to: string[];
                 };
-                for (const address of to) {
-                    const message = createMimeMessage();
-                    message.setSender({ addr: from });
-                    message.setRecipient({ addr: address });
-                    message.setSubject(subject ?? "");
-                    if (text) message.addMessage({ contentType: "text/plain", data: text });
-                    if (html) message.addMessage({ contentType: "text/html", data: html });
-                    await email.send(new EmailMessage(from, address, message.asRaw()));
-                }
-                return new Response("sent");
-            } catch (error) {
-                return Response.json({ error: String(error) }, { status: 500 });
+            for (const address of to) {
+                const message = createMimeMessage();
+                message.setSender({ addr: from });
+                message.setRecipient({ addr: address });
+                message.setSubject(subject ?? "");
+                if (text)
+                    message.addMessage({
+                        contentType: "text/plain",
+                        data: text,
+                    });
+                if (html)
+                    message.addMessage({
+                        contentType: "text/html",
+                        data: html,
+                    });
+                await email.send(
+                    new EmailMessage(from, address, message.asRaw()),
+                );
             }
-        },
-        host: options.host ?? defaultHost(name),
-    });
+            return new Response("sent");
+        } catch (error) {
+            return Response.json({ error: String(error) }, { status: 500 });
+        }
+    },
+    host: options.host ?? defaultHost(name),
+});
 
 /** Debug sink: the container's boot output lands in the worker's tail. */
 export const log = (options: OutboundOptions = {}): Outbound => ({
@@ -166,8 +190,12 @@ export const log = (options: OutboundOptions = {}): Outbound => ({
  *
  * Hosts default to the lowercased binding name plus `.app`.
  */
-export const phpOutbound = (...outbounds: Outbound[]): Record<string, OutboundHandler> =>
-    Object.fromEntries(outbounds.map((outbound) => [outbound.host, outbound.handle]));
+export const phpOutbound = (
+    ...outbounds: Outbound[]
+): Record<string, OutboundHandler> =>
+    Object.fromEntries(
+        outbounds.map((outbound) => [outbound.host, outbound.handle]),
+    );
 
 export class PhpContainer<E = Cloudflare.Env> extends Container<E> {
     defaultPort = 8080;
@@ -177,6 +205,8 @@ export class PhpContainer<E = Cloudflare.Env> extends Container<E> {
     }
 
     override onStop(stop: { exitCode: number; reason: string }): void {
-        console.log(`container stopped: code=${stop.exitCode} reason=${stop.reason}`);
+        console.log(
+            `container stopped: code=${stop.exitCode} reason=${stop.reason}`,
+        );
     }
 }

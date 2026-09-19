@@ -3,8 +3,14 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
     resolve: {
         alias: {
-            "@cloudflare/containers": new URL("./tests/stubs/containers.ts", import.meta.url).pathname,
-            "cloudflare:email": new URL("./tests/stubs/email.ts", import.meta.url).pathname,
+            "@cloudflare/containers": new URL(
+                "./tests/stubs/containers.ts",
+                import.meta.url,
+            ).pathname,
+            "cloudflare:email": new URL(
+                "./tests/stubs/email.ts",
+                import.meta.url,
+            ).pathname,
         },
     },
     test: {

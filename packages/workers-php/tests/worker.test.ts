@@ -5,12 +5,28 @@ import { holdThroughBoot, phpWorker, serveR2 } from "../src/worker";
 const booting = () =>
     new Response("booting", { headers: { "Retry-After": "1" }, status: 503 });
 
+const callWorker = <E>(
+    handler: ExportedHandler<E>,
+    request: Request,
+    env: unknown,
+) => {
+    if (!handler.fetch) throw new Error("handler has no fetch");
+    return handler.fetch(request as never, env as never, {} as never);
+};
+
 describe("holdThroughBoot", () => {
     it("retries through the boot window and lands on the real response", async () => {
         const responses = [booting(), booting(), new Response("ok")];
-        const fetchRequest = vi.fn().mockImplementation(async () => responses.shift()!);
+        const fetchRequest = vi
+            .fn()
+            .mockImplementation(
+                async () => responses.shift() ?? new Response("missing"),
+            );
 
-        const response = await holdThroughBoot(fetchRequest, new Request("http://x.dev/"));
+        const response = await holdThroughBoot(
+            fetchRequest,
+            new Request("http://x.dev/"),
+        );
 
         expect(fetchRequest).toHaveBeenCalledTimes(3);
         expect(await response.text()).toBe("ok");
@@ -20,7 +36,10 @@ describe("holdThroughBoot", () => {
         const plain = new Response("nope", { status: 503 });
         const fetchRequest = vi.fn().mockResolvedValue(plain);
 
-        const response = await holdThroughBoot(fetchRequest, new Request("http://x.dev/"));
+        const response = await holdThroughBoot(
+            fetchRequest,
+            new Request("http://x.dev/"),
+        );
 
         expect(fetchRequest).toHaveBeenCalledTimes(1);
         expect(response).toBe(plain);
@@ -29,9 +48,13 @@ describe("holdThroughBoot", () => {
     it("gives up after the deadline and returns the last response", async () => {
         const fetchRequest = vi.fn().mockImplementation(async () => booting());
 
-        const response = await holdThroughBoot(fetchRequest, new Request("http://x.dev/"), {
-            deadlineMs: 50,
-        });
+        const response = await holdThroughBoot(
+            fetchRequest,
+            new Request("http://x.dev/"),
+            {
+                deadlineMs: 50,
+            },
+        );
 
         expect(response.status).toBe(503);
         expect(fetchRequest.mock.calls.length).toBeLessThan(4);
@@ -39,12 +62,17 @@ describe("holdThroughBoot", () => {
 
     it("clones the request so POST bodies survive every attempt", async () => {
         const bodies: string[] = [];
-        const fetchRequest = vi.fn().mockImplementation(async (request: Request) => {
-            bodies.push(await request.text());
-            return bodies.length < 2 ? booting() : new Response("ok");
-        });
+        const fetchRequest = vi
+            .fn()
+            .mockImplementation(async (request: Request) => {
+                bodies.push(await request.text());
+                return bodies.length < 2 ? booting() : new Response("ok");
+            });
 
-        await holdThroughBoot(fetchRequest, new Request("http://x.dev/", { body: "payload", method: "POST" }));
+        await holdThroughBoot(
+            fetchRequest,
+            new Request("http://x.dev/", { body: "payload", method: "POST" }),
+        );
 
         expect(bodies).toEqual(["payload", "payload"]);
     });
@@ -58,33 +86,57 @@ describe("serveR2", () => {
     const object = {
         body: "content",
         httpEtag: '"tag"',
-        writeHttpMetadata: (headers: Headers) => headers.set("Content-Type", "image/webp"),
+        writeHttpMetadata: (headers: Headers) =>
+            headers.set("Content-Type", "image/webp"),
     };
 
     it("ignores paths outside the prefix", async () => {
-        expect(await serveR2(new Request("http://x.dev/app.css"), bucket as never, "/storage/")).toBeNull();
+        expect(
+            await serveR2(
+                new Request("http://x.dev/app.css"),
+                bucket as never,
+                "/storage/",
+            ),
+        ).toBeNull();
     });
 
     it("ignores non-GET methods under the prefix", async () => {
         expect(
-            await serveR2(new Request("http://x.dev/storage/a", { method: "POST" }), bucket as never, "/storage/"),
+            await serveR2(
+                new Request("http://x.dev/storage/a", { method: "POST" }),
+                bucket as never,
+                "/storage/",
+            ),
         ).toBeNull();
     });
 
     it("streams objects with cache headers", async () => {
         bucket.get.mockResolvedValueOnce(object);
-        const response = await serveR2(new Request("http://x.dev/storage/users/1.webp"), bucket as never, "/storage/");
+        const response = await serveR2(
+            new Request("http://x.dev/storage/users/1.webp"),
+            bucket as never,
+            "/storage/",
+        );
 
-        expect(bucket.get).toHaveBeenCalledWith("users/1.webp", { onlyIf: expect.any(Headers) });
-        expect(response?.headers.get("Cache-Control")).toBe("public, max-age=300");
+        expect(bucket.get).toHaveBeenCalledWith("users/1.webp", {
+            onlyIf: expect.any(Headers),
+        });
+        expect(response?.headers.get("Cache-Control")).toBe(
+            "public, max-age=300",
+        );
         expect(response?.headers.get("etag")).toBe('"tag"');
         expect(await response?.text()).toBe("content");
     });
 
     it("answers 304 when the condition fails", async () => {
-        bucket.get.mockResolvedValueOnce({ httpEtag: '"tag"', writeHttpMetadata: object.writeHttpMetadata });
+        bucket.get.mockResolvedValueOnce({
+            httpEtag: '"tag"',
+            writeHttpMetadata: object.writeHttpMetadata,
+        });
         const response = await serveR2(
-            new Request("http://x.dev/storage/a", { headers: { "If-None-Match": '"tag"' } }),
+            new Request("http://x.dev/storage/a", {
+                headers: { "If-None-Match": '"tag"' },
+            }),
             bucket as never,
             "/storage/",
         );
@@ -94,7 +146,11 @@ describe("serveR2", () => {
 
     it("404s missing keys", async () => {
         bucket.get.mockResolvedValueOnce(null);
-        const response = await serveR2(new Request("http://x.dev/storage/missing"), bucket as never, "/storage/");
+        const response = await serveR2(
+            new Request("http://x.dev/storage/missing"),
+            bucket as never,
+            "/storage/",
+        );
 
         expect(response?.status).toBe(404);
     });
@@ -102,7 +158,11 @@ describe("serveR2", () => {
 
 describe("phpWorker", () => {
     const worker = () =>
-        phpWorker({ container: "CONTAINER", name: "app", storage: { bucket: "FILES", prefix: "/storage/" } });
+        phpWorker({
+            container: "CONTAINER",
+            name: "app",
+            storage: { bucket: "FILES", prefix: "/storage/" },
+        });
 
     const namespace = (fetch: (request: Request) => Promise<Response>) =>
         ({
@@ -123,17 +183,30 @@ describe("phpWorker", () => {
             },
         };
 
-        const response = await worker().fetch!(new Request("http://x.dev/storage/a.webp"), env as never, {} as never);
+        const response = await callWorker(
+            worker(),
+            new Request("http://x.dev/storage/a.webp"),
+            env,
+        );
 
         expect(containerFetch).not.toHaveBeenCalled();
         expect(await response.text()).toBe("img");
     });
 
     it("proxies everything else to the container", async () => {
-        const containerFetch = vi.fn().mockResolvedValue(new Response("from php"));
-        const env = { CONTAINER: namespace(containerFetch), FILES: { get: vi.fn() } };
+        const containerFetch = vi
+            .fn()
+            .mockResolvedValue(new Response("from php"));
+        const env = {
+            CONTAINER: namespace(containerFetch),
+            FILES: { get: vi.fn() },
+        };
 
-        const response = await worker().fetch!(new Request("http://x.dev/login"), env as never, {} as never);
+        const response = await callWorker(
+            worker(),
+            new Request("http://x.dev/login"),
+            env,
+        );
 
         expect(containerFetch).toHaveBeenCalled();
         expect(await response.text()).toBe("from php");
@@ -141,7 +214,9 @@ describe("phpWorker", () => {
 
     it("throws a clear error for a missing binding", async () => {
         await expect(
-            worker().fetch!(new Request("http://x.dev/storage/a"), { CONTAINER: namespace(vi.fn()) } as never, {} as never),
+            callWorker(worker(), new Request("http://x.dev/storage/a"), {
+                CONTAINER: namespace(vi.fn()),
+            } as never),
         ).rejects.toThrow('workers-php: no binding named "FILES"');
     });
 });
