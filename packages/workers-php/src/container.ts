@@ -6,14 +6,8 @@ import { createMimeMessage } from "mimetext";
 
 export interface Outbound<E = Cloudflare.Env> {
     handle: OutboundHandler<E>;
-    host: string;
+    path: string;
 }
-
-export interface OutboundOptions {
-    host?: string;
-}
-
-const defaultHost = (binding: string) => `${binding.toLowerCase()}.app`;
 
 const binding = <T, K extends string>(env: Record<K, T>, name: K): T => {
     const value = env[name];
@@ -23,14 +17,14 @@ const binding = <T, K extends string>(env: Record<K, T>, name: K): T => {
 };
 
 /**
- * Speaks the D1 query protocol the PHP runtime expects:
+ * Speaks the D1 query protocol the PHP runtime expects, relative to the
+ * outbound path (the endpoint is `{host}/{name}`):
  *
- *   POST {host}/query  {"sql": "...", "params": [...]}  → D1 result JSON
- *   POST {host}/exec   {"sql": "..."}                   → {"count": n}
+ *   POST {endpoint}/query  {"sql": "...", "params": [...]}  → D1 result JSON
+ *   POST {endpoint}/exec   {"sql": "..."}                   → {"count": n}
  */
 export const d1 = <K extends string>(
     name: K,
-    options: OutboundOptions = {},
 ): Outbound<Record<K, D1Database>> => ({
     handle: async (request, env) => {
         try {
@@ -55,17 +49,16 @@ export const d1 = <K extends string>(
             return Response.json({ error: String(error) }, { status: 500 });
         }
     },
-    host: options.host ?? defaultHost(name),
+    path: `/${name}`,
 });
 
 /**
  * REST-ish object protocol the PHP R2 client expects: GET/HEAD/PUT/DELETE
- * on /{key}, plus GET /?list&prefix&limit&cursor for pagination. DELETE
- * with a JSON body deletes a batch of keys.
+ * on {endpoint}/{key}, plus GET {endpoint}/?list&prefix&limit&cursor for
+ * pagination. DELETE with a JSON body deletes a batch of keys.
  */
 export const r2 = <K extends string>(
     name: K,
-    options: OutboundOptions = {},
 ): Outbound<Record<K, R2Bucket>> => ({
     handle: async (request, env) => {
         const bucket = binding(env, name);
@@ -123,18 +116,17 @@ export const r2 = <K extends string>(
                 return new Response("Method not allowed", { status: 405 });
         }
     },
-    host: options.host ?? defaultHost(name),
+    path: `/${name}`,
 });
 
 /**
- * Structured mail protocol: POST {host}/send with
+ * Structured mail protocol: POST {endpoint}/send with
  * {from, to[], subject, html?, text?}. Cloudflare's send_email binding
  * takes one recipient per EmailMessage, so one message is built per
  * address.
  */
 export const mail = <K extends string>(
     name: K,
-    options: OutboundOptions = {},
 ): Outbound<Record<K, SendEmail>> => ({
     handle: async (request, env) => {
         try {
@@ -171,16 +163,28 @@ export const mail = <K extends string>(
             return Response.json({ error: String(error) }, { status: 500 });
         }
     },
-    host: options.host ?? defaultHost(name),
+    path: `/${name}`,
 });
 
-/** Debug sink: the container's boot output lands in the worker's tail. */
-export const log = (options: OutboundOptions = {}): Outbound => ({
+/**
+ * Debug sink: the container's boot output lands in the worker's tail.
+ * With `sink`, the same body is also POSTed to a real endpoint (best
+ * effort, from the worker side so it never re-enters interception).
+ */
+export const log = (options: { sink?: string } = {}): Outbound => ({
     handle: async (request) => {
-        console.log("container boot:", await request.text());
+        const body = await request.text();
+        console.log("container boot:", body);
+        if (options.sink) {
+            try {
+                await fetch(options.sink, { body, method: "POST" });
+            } catch {
+                // Best effort: a dead sink must not fail the container.
+            }
+        }
         return new Response("ok");
     },
-    host: options.host ?? "log.app",
+    path: "/log",
 });
 
 /**
@@ -188,14 +192,52 @@ export const log = (options: OutboundOptions = {}): Outbound => ({
  *
  *   static outboundByHost = phpOutbound(d1("DB"), r2("FILES"), mail("EMAIL"));
  *
- * Hosts default to the lowercased binding name plus `.app`.
+ * All traffic goes through a single shared host (default `example.com`,
+ * IANA-reserved and always resolvable): interception keys on the host
+ * alone and diverts before egress, so the host never receives real
+ * traffic and only its DNS record matters. Each factory routes under a
+ * path derived from its binding name, verbatim — `d1("DB")` answers
+ * `http://example.com/DB/*`.
  */
 export const phpOutbound = (
+    configOrOutbound: { host?: string } | Outbound,
     ...outbounds: Outbound[]
-): Record<string, OutboundHandler> =>
-    Object.fromEntries(
-        outbounds.map((outbound) => [outbound.host, outbound.handle]),
+): Record<string, OutboundHandler> => {
+    const isOutbound = (value: unknown): value is Outbound =>
+        typeof value === "object" && value !== null && "handle" in value;
+    const host = isOutbound(configOrOutbound)
+        ? "example.com"
+        : (configOrOutbound.host ?? "example.com");
+    const routes = [
+        ...(isOutbound(configOrOutbound) ? [configOrOutbound] : []),
+        ...outbounds,
+    ].sort((a, b) => b.path.length - a.path.length);
+    const paths = routes.map((route) => route.path);
+    const duplicate = paths.find(
+        (path, index) => paths.indexOf(path) !== index,
     );
+    if (duplicate !== undefined)
+        throw new Error(`workers-php: duplicate outbound path "${duplicate}"`);
+    return {
+        [host]: (request, env, ctx) => {
+            const url = new URL(request.url);
+            for (const { handle, path } of routes) {
+                if (
+                    url.pathname === path ||
+                    url.pathname.startsWith(`${path}/`)
+                ) {
+                    const stripped = new URL(request.url);
+                    stripped.pathname = url.pathname.slice(path.length) || "/";
+                    return handle(new Request(stripped, request), env, ctx);
+                }
+            }
+            return Response.json(
+                { error: `workers-php: no outbound route for ${url.pathname}` },
+                { status: 404 },
+            );
+        },
+    };
+};
 
 export class PhpContainer<E = Cloudflare.Env> extends Container<E> {
     defaultPort = 8080;

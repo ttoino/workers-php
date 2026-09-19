@@ -1,3 +1,5 @@
+import type { OutboundHandler } from "@cloudflare/containers";
+
 import { describe, expect, it, vi } from "vitest";
 
 import { d1, log, mail, phpOutbound, r2 } from "../src/container";
@@ -15,7 +17,7 @@ describe("d1", () => {
         const handler = d1("DB").handle;
 
         const response = await handler(
-            jsonRequest("http://db.app/query", {
+            jsonRequest("http://example.com/query", {
                 params: [1, "x"],
                 sql: "SELECT ?",
             }),
@@ -35,7 +37,7 @@ describe("d1", () => {
         const prepare = vi.fn().mockReturnValue({ all, bind });
 
         await d1("DB").handle(
-            jsonRequest("http://db.app/query", { sql: "SELECT 1" }),
+            jsonRequest("http://example.com/query", { sql: "SELECT 1" }),
             {
                 DB: { prepare },
             } as never,
@@ -49,7 +51,7 @@ describe("d1", () => {
     it("routes /exec to exec and returns the count", async () => {
         const exec = vi.fn().mockResolvedValue({ count: 3 });
         const response = await d1("DB").handle(
-            jsonRequest("http://db.app/exec", {
+            jsonRequest("http://example.com/exec", {
                 sql: "CREATE TABLE t (id int)",
             }),
             { DB: { exec } } as never,
@@ -65,7 +67,7 @@ describe("d1", () => {
             throw new Error("no such table");
         });
         const response = await d1("DB").handle(
-            jsonRequest("http://db.app/query", { sql: "SELECT 1" }),
+            jsonRequest("http://example.com/query", { sql: "SELECT 1" }),
             {
                 DB: { prepare },
             } as never,
@@ -90,7 +92,7 @@ describe("r2", () => {
     it("GETs an object with its metadata", async () => {
         const get = vi.fn().mockResolvedValue(object("hello"));
         const response = await r2("FILES").handle(
-            new Request("http://files.app/a.txt"),
+            new Request("http://example.com/a.txt"),
             {
                 FILES: { get },
             } as never,
@@ -106,7 +108,7 @@ describe("r2", () => {
     it("404s missing keys", async () => {
         const get = vi.fn().mockResolvedValue(null);
         const response = await r2("FILES").handle(
-            new Request("http://files.app/missing"),
+            new Request("http://example.com/missing"),
             {
                 FILES: { get },
             } as never,
@@ -123,7 +125,7 @@ describe("r2", () => {
             uploaded: new Date("2026-01-01T00:00:00Z"),
         });
         const response = await r2("FILES").handle(
-            new Request("http://files.app/a.txt", { method: "HEAD" }),
+            new Request("http://example.com/a.txt", { method: "HEAD" }),
             {
                 FILES: { head },
             } as never,
@@ -139,7 +141,7 @@ describe("r2", () => {
     it("PUTs with the content type", async () => {
         const put = vi.fn().mockResolvedValue(undefined);
         await r2("FILES").handle(
-            new Request("http://files.app/a.txt", {
+            new Request("http://example.com/a.txt", {
                 body: "data",
                 headers: { "Content-Type": "text/plain" },
                 method: "PUT",
@@ -156,7 +158,7 @@ describe("r2", () => {
     it("DELETEs a batch when the body lists keys", async () => {
         const del = vi.fn().mockResolvedValue(undefined);
         await r2("FILES").handle(
-            new Request("http://files.app/", {
+            new Request("http://example.com/", {
                 body: JSON.stringify({ keys: ["a", "b"] }),
                 method: "DELETE",
             }),
@@ -174,7 +176,9 @@ describe("r2", () => {
             truncated: true,
         });
         const response = await r2("FILES").handle(
-            new Request("http://files.app/?list&prefix=pub&limit=5&cursor=cur"),
+            new Request(
+                "http://example.com/?list&prefix=pub&limit=5&cursor=cur",
+            ),
             { FILES: { list } } as never,
             {} as never,
         );
@@ -196,7 +200,7 @@ describe("mail", () => {
     it("sends one message per recipient", async () => {
         const send = vi.fn().mockResolvedValue(undefined);
         const response = await mail("EMAIL").handle(
-            jsonRequest("http://email.app/send", {
+            jsonRequest("http://example.com/send", {
                 from: "noreply@x.dev",
                 subject: "Hi",
                 text: "body",
@@ -213,7 +217,7 @@ describe("mail", () => {
     it("answers 500 when sending fails", async () => {
         const send = vi.fn().mockRejectedValue(new Error("sender not allowed"));
         const response = await mail("EMAIL").handle(
-            jsonRequest("http://email.app/send", {
+            jsonRequest("http://example.com/send", {
                 from: "x@x.dev",
                 subject: "",
                 to: ["a@x.dev"],
@@ -226,21 +230,138 @@ describe("mail", () => {
     });
 });
 
-describe("phpOutbound", () => {
-    it("derives hosts from binding names", () => {
-        const map = phpOutbound(d1("DB"), r2("FILES"), mail("EMAIL"), log());
+describe("log", () => {
+    it("answers ok and tees the body to the sink when set", async () => {
+        const tee = vi.fn().mockResolvedValue(new Response("ok"));
+        vi.stubGlobal("fetch", tee);
+        vi.spyOn(console, "log").mockImplementation(() => undefined);
 
-        expect(Object.keys(map).sort()).toEqual([
-            "db.app",
-            "email.app",
-            "files.app",
-            "log.app",
-        ]);
+        const response = await log({ sink: "http://logs.internal/" }).handle(
+            new Request("http://example.com/", {
+                body: "boot output",
+                method: "POST",
+            }),
+            {} as never,
+            {} as never,
+        );
+
+        expect(response.status).toBe(200);
+        expect(tee).toHaveBeenCalledWith("http://logs.internal/", {
+            body: "boot output",
+            method: "POST",
+        });
+        vi.unstubAllGlobals();
     });
 
-    it("honours host overrides", () => {
-        const map = phpOutbound(d1("DB", { host: "primary.internal" }));
+    it("still answers ok when the sink is down", async () => {
+        vi.stubGlobal(
+            "fetch",
+            vi.fn().mockRejectedValue(new Error("connection refused")),
+        );
+        vi.spyOn(console, "log").mockImplementation(() => undefined);
 
-        expect(Object.keys(map)).toEqual(["primary.internal"]);
+        const response = await log({ sink: "http://logs.internal/" }).handle(
+            new Request("http://example.com/", {
+                body: "boot output",
+                method: "POST",
+            }),
+            {} as never,
+            {} as never,
+        );
+
+        expect(response.status).toBe(200);
+        vi.unstubAllGlobals();
+    });
+});
+
+describe("phpOutbound", () => {
+    const env = {
+        DB: { prepare: vi.fn().mockReturnValue({ all: vi.fn() }) },
+        EMAIL: { send: vi.fn() },
+        FILES: { get: vi.fn().mockResolvedValue(null) },
+    };
+
+    const handlerFor = (map: Record<string, OutboundHandler | undefined>) => {
+        const handler = map["example.com"];
+        if (handler === undefined) throw new Error("missing handler");
+        return handler;
+    };
+
+    it("routes every factory under one shared host", () => {
+        const map = phpOutbound(d1("DB"), r2("FILES"), mail("EMAIL"), log());
+
+        expect(Object.keys(map)).toEqual(["example.com"]);
+    });
+
+    it("honours a custom shared host", () => {
+        const map = phpOutbound({ host: "outbound.internal" }, d1("DB"));
+
+        expect(Object.keys(map)).toEqual(["outbound.internal"]);
+    });
+
+    it("dispatches by binding-name path and strips the prefix", async () => {
+        vi.spyOn(console, "log").mockImplementation(() => undefined);
+        const handler = handlerFor(
+            phpOutbound(d1("DB"), r2("FILES"), mail("EMAIL"), log()),
+        );
+
+        await handler(
+            jsonRequest("http://example.com/DB/query", { sql: "SELECT 1" }),
+            env as never,
+            {} as never,
+        );
+        expect(env.DB.prepare).toHaveBeenCalledWith("SELECT 1");
+
+        const r2Response = await handler(
+            new Request("http://example.com/FILES/a.txt"),
+            env as never,
+            {} as never,
+        );
+        expect(env.FILES.get).toHaveBeenCalledWith("a.txt");
+        expect(r2Response.status).toBe(404);
+
+        const mailResponse = await handler(
+            jsonRequest("http://example.com/EMAIL/send", {
+                from: "x@x.dev",
+                subject: "",
+                text: "body",
+                to: ["a@x.dev"],
+            }),
+            env as never,
+            {} as never,
+        );
+        expect(mailResponse.status).toBe(200);
+        expect(env.EMAIL.send).toHaveBeenCalledTimes(1);
+
+        const logResponse = await handler(
+            new Request("http://example.com/log", {
+                body: "boot output",
+                method: "POST",
+            }),
+            env as never,
+            {} as never,
+        );
+        expect(logResponse.status).toBe(200);
+    });
+
+    it("does not match partial path segments", async () => {
+        const handler = handlerFor(phpOutbound(d1("DB")));
+
+        const response = await handler(
+            jsonRequest("http://example.com/DB2/query", { sql: "SELECT 1" }),
+            env as never,
+            {} as never,
+        );
+
+        expect(response.status).toBe(404);
+        expect(await response.json()).toEqual({
+            error: "workers-php: no outbound route for /DB2/query",
+        });
+    });
+
+    it("throws on duplicate paths", () => {
+        expect(() => phpOutbound(d1("DATA"), r2("DATA"))).toThrow(
+            'workers-php: duplicate outbound path "/DATA"',
+        );
     });
 });
