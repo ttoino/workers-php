@@ -4,3 +4,4 @@ packages:
 allowBuilds:
   core-js-pure: set this to true or false
   esbuild: set this to true or false
+  workerd: set this to true or false
