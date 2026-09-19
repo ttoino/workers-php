@@ -9,7 +9,7 @@
 #
 # Defaults serve FrankenPHP; override SERVER_CMD for any other SAPI.
 set -e
-cd /app
+cd "${APP_DIR:-/app}"
 
 READY_FLAG="${WORKERS_PHP_READY_FLAG:-/tmp/workers-php-ready}"
 SERVER_CMD="${SERVER_CMD:-frankenphp run --config /etc/frankenphp/Caddyfile --adapter caddyfile}"
