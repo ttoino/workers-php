@@ -107,4 +107,14 @@ class D1HttpClientTest extends TestCase
 
         $this->assertSame(['sql' => 'SELECT * FROM users WHERE id = ?', 'params' => [42]], $calls[0]);
     }
+
+    // Laravel's Connection::getServerVersion() has a string return type and
+    // fatals on the null a bare PDO would give for unset attributes.
+    public function test_pdo_seeds_driver_and_server_version_attributes(): void
+    {
+        $pdo = new HttpD1PDO('http://db.app');
+
+        $this->assertSame('sqlite', $pdo->getAttribute(\PDO::ATTR_DRIVER_NAME));
+        $this->assertSame('3.40.0', $pdo->getAttribute(\PDO::ATTR_SERVER_VERSION));
+    }
 }

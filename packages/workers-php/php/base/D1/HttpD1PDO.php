@@ -21,6 +21,10 @@ final class HttpD1PDO extends \PDO
         \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
         \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
         \PDO::ATTR_CASE => \PDO::CASE_NATURAL,
+        // Laravel's Connection::getServerVersion() reads ATTR_SERVER_VERSION
+        // with a string return type; D1 runs on SQLite 3.
+        \PDO::ATTR_DRIVER_NAME => 'sqlite',
+        \PDO::ATTR_SERVER_VERSION => '3.40.0',
     ];
 
     private bool $inTxn = false;
