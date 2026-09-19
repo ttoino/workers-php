@@ -53,4 +53,12 @@ workers-php-example-laravel run gen:cf-types` after config changes
 
 `.github/workflows/js.yml` (format/lint/typecheck/test/build) and
 `.github/workflows/php.yml` (pint/phpunit), modeled on the atrellado
-repo conventions.
+repo conventions. `.github/workflows/cd.yml` publishes `workers-php` to
+npm via OIDC trusted publishing (no tokens): it fires on GitHub releases
+and requires the tag to match `packages/workers-php/package.json`'s
+version.
+
+Releasing: bump the version, commit `Release version X.Y.Z`, push, cut
+the GitHub release `vX.Y.Z`. The trusted publisher on npmjs.com points
+at `ttoino/workers-php` + `cd.yml`; the initial publish was interactive
+because OIDC requires the package to already exist on the registry.
