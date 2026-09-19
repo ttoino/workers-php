@@ -1,0 +1,14 @@
+{
+    "name": "workers-php-monorepo",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "build": "pnpm --filter workers-php run build",
+        "check": "pnpm --filter workers-php run check",
+        "format": "prettier --check .",
+        "format:fix": "prettier --write .",
+        "lint": "eslint .",
+        "lint:fix": "eslint . --fix",
+        "test": "pnpm --filter workers-php run test"
+    }
+}
