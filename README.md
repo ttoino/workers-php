@@ -13,7 +13,7 @@ browser ──► Worker (phpWorker)
               ├── /storage/* ──► R2 (no container boot needed)
               └── everything else ──► Durable Object ──► container :8080
                                         ▲
-container ──► http://d1.app, files.app, email.app ──► outboundByHost ──► D1 / R2 / send_email
+container ──► http://example.com/{DB,FILES,EMAIL} ──► outboundByHost ──► D1 / R2 / send_email
 ```
 
 The container's contract with the Worker is exactly two things:
@@ -63,11 +63,11 @@ export class AppContainer extends PhpContainer {
     envVars = {
         APP_KEY: workerEnv.APP_KEY,
         DB_CONNECTION: "d1",
-        DB_D1_ENDPOINT: "http://d1.app",
+        DB_D1_ENDPOINT: "http://example.com/DB",
         FILESYSTEM_DISK: "r2",
-        R2_ENDPOINT: "http://files.app",
+        R2_ENDPOINT: "http://example.com/FILES",
         MAIL_MAILER: "http-mail",
-        MAIL_ENDPOINT: "http://email.app",
+        MAIL_ENDPOINT: "http://example.com/EMAIL",
         CACHE_STORE: "database",
         SESSION_DRIVER: "cookie",
         QUEUE_CONNECTION: "sync",
@@ -76,7 +76,7 @@ export class AppContainer extends PhpContainer {
 }
 
 AppContainer.outboundByHost = phpOutbound(
-    d1("DB", { host: "d1.app" }),
+    d1("DB"),
     r2("FILES"),
     mail("EMAIL"),
     log(),
@@ -187,7 +187,7 @@ Map them in your `composer.json`:
 Every client takes an optional transport callable:
 
 ```php
-new D1HttpClient("http://d1.app", fn ($m, $u, $h, $b) => [200, [], "{}"]);
+new D1HttpClient("http://example.com/DB", fn ($m, $u, $h, $b) => [200, [], "{}"]);
 ```
 
 so tests (and alternative HTTP stacks) substitute their own; the default
@@ -214,7 +214,7 @@ SQLite connection shape even though only `endpoint` is used:
 ```php
 'd1' => [
     'driver' => 'd1',
-    'endpoint' => env('DB_D1_ENDPOINT', 'http://d1.app'),
+    'endpoint' => env('DB_D1_ENDPOINT', 'http://example.com/DB'),
     'database' => ':memory:',
     'prefix' => '',
     'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
@@ -226,7 +226,7 @@ SQLite connection shape even though only `endpoint` is used:
 ```php
 'r2' => [
     'driver' => 'r2',
-    'endpoint' => env('R2_ENDPOINT', 'http://files.app'),
+    'endpoint' => env('R2_ENDPOINT', 'http://example.com/FILES'),
     'url_prefix' => env('R2_URL_PREFIX', '/storage'),
 ],
 ```
@@ -239,7 +239,7 @@ boot), and `Storage::url()` produces those URLs.
 ```php
 'http-mail' => [
     'transport' => 'http-mail',
-    'endpoint' => env('MAIL_ENDPOINT', 'http://email.app'),
+    'endpoint' => env('MAIL_ENDPOINT', 'http://example.com/EMAIL'),
 ],
 ```
 
@@ -249,20 +249,23 @@ boot), and `Storage::url()` produces those URLs.
 `TransportInterface` over the structured endpoint; Laravel registers it
 as the `http-mail` transport, plain Symfony apps wire it directly.
 
-## Outbound hosts
+## Outbound host
 
-`phpOutbound(d1("DB"), r2("FILES"), mail("EMAIL"), log())` maps magic
-hosts to handlers. Hosts default to the lowercased binding name plus
-`.app`; override per factory (`{ host: "d1.app" }`).
+`phpOutbound(d1("DB"), r2("FILES"), mail("EMAIL"), log())` routes all of
+the container's outbound calls through a single shared host —
+`example.com` by default, override with `phpOutbound({ host: "…" }, …)`.
 
-**The hosts must be publicly resolvable.** Local interception happens
-per-connection _after_ DNS resolution, so a host that does not exist in
-public DNS (like `db.app`) can never be intercepted in `wrangler dev`.
-Pick names that resolve — or override them, as the example above does
-for `DB`.
+Interception keys on the **host** alone and diverts traffic to the worker
+before egress, so the host never receives real traffic — only its DNS
+record matters, because interception happens per-connection _after_ DNS
+resolution. `example.com` is IANA-reserved and always resolvable, which
+is exactly what makes it safe to hardcode. Each factory answers under a
+path named after its binding, verbatim: `d1("DB")` serves
+`http://example.com/DB/*` — keep the `*_ENDPOINT` env vars in step.
 
-The `log()` handler is a debug sink: POSTs to `log.app` land in the
-worker's tail. Drop it for production.
+The `log()` handler is a debug sink: POSTs to `/log` land in the worker's
+tail. Drop it for production, or pass `{ sink: "https://…" }` to also
+forward the output to a real collector.
 
 ## Caveats
 

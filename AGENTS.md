@@ -44,9 +44,10 @@ workers-php-example-laravel run gen:cf-types` after config changes
 - PHP side has no host runtime: use docker
   (`docker run --rm -v "$PWD/packages/workers-php:/app" -w /app
 <php-image> sh -c 'vendor/bin/phpunit; vendor/bin/pint --test'`).
-- Local `wrangler dev` of the example needs outbound hosts that resolve
-  in public DNS — `db.app` does not; `d1.app` does. See README §
-  Outbound hosts.
+- Outbound traffic rides one shared host (`example.com`) with
+  per-binding paths (`/DB`); interception happens after DNS resolution,
+  so the host must resolve in public DNS — the IANA-reserved apex
+  always does. See README § Outbound host.
 
 ## CI
 
