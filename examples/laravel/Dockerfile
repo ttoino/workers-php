@@ -9,11 +9,6 @@
 FROM composer:2 AS vendor
 WORKDIR /srv/examples/laravel
 
-# Cloudflare WARP MITMs local builds; the CA bundle is committed for that
-# case and simply goes unused on Cloudflare's build infrastructure.
-COPY examples/laravel/etc/certs/warp.pem /etc/ssl/warp.pem
-ENV SSL_CERT_FILE=/etc/ssl/warp.pem \
-    CURL_CA_BUNDLE=/etc/ssl/warp.pem
 RUN git config --global --add safe.directory /srv/examples/laravel
 COPY examples/laravel/composer.json examples/laravel/composer.lock ./
 # Extensions are checked in the runtime stage; the composer image lacks gd.
