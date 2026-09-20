@@ -7,7 +7,7 @@ use WorkersPhp\Laravel\Queue\QueueConsumer;
 // Cloudflare Queue messages here one at a time and maps the response to
 // ack/retry semantics.
 
-$appDir = getenv('APP_DIR') ?: '/srv/app';
+$appDir = getenv('APP_DIR') ?: '/app';
 
 require $appDir.'/vendor/autoload.php';
 $app = require $appDir.'/bootstrap/app.php';
