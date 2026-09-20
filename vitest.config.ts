@@ -11,6 +11,8 @@ export default defineConfig({
                 "./tests/stubs/email.ts",
                 import.meta.url,
             ).pathname,
+            postgres: new URL("./tests/stubs/postgres.ts", import.meta.url)
+                .pathname,
         },
     },
     test: {

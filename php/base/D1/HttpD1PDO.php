@@ -8,8 +8,9 @@ namespace WorkersPhp\D1;
  *
  * Extends \PDO purely so `\PDO` type hints accept it; the parent
  * instance is never used — every method routes through the endpoint.
+ * HttpPgsqlPDO reuses the same machinery with a Postgres identity.
  */
-final class HttpD1PDO extends \PDO
+class HttpD1PDO extends \PDO
 {
     private D1HttpClient $client;
 
@@ -19,15 +20,7 @@ final class HttpD1PDO extends \PDO
     private array $errorInfo = ['', null, null];
 
     /** @var array<int, mixed> */
-    private array $attributes = [
-        \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
-        \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
-        \PDO::ATTR_CASE => \PDO::CASE_NATURAL,
-        // Laravel's Connection::getServerVersion() reads ATTR_SERVER_VERSION
-        // with a string return type; D1 runs on SQLite 3.
-        \PDO::ATTR_DRIVER_NAME => 'sqlite',
-        \PDO::ATTR_SERVER_VERSION => '3.40.0',
-    ];
+    private array $attributes;
 
     private bool $inTxn = false;
 
@@ -37,6 +30,26 @@ final class HttpD1PDO extends \PDO
         // `extends \PDO` contract.
         parent::__construct('sqlite::memory:');
         $this->client = is_string($endpoint) ? new D1HttpClient($endpoint) : $endpoint;
+        $this->attributes = [
+            \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
+            \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
+            \PDO::ATTR_CASE => \PDO::CASE_NATURAL,
+        ] + $this->driverAttributes();
+    }
+
+    /**
+     * Driver identity attributes. Laravel's
+     * Connection::getServerVersion() reads ATTR_SERVER_VERSION with a
+     * string return type; D1 runs on SQLite 3.
+     *
+     * @return array<int, mixed>
+     */
+    protected function driverAttributes(): array
+    {
+        return [
+            \PDO::ATTR_DRIVER_NAME => 'sqlite',
+            \PDO::ATTR_SERVER_VERSION => '3.40.0',
+        ];
     }
 
     /** @param array<int, mixed> $options */

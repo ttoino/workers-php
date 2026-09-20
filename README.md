@@ -276,6 +276,49 @@ boot), and `Storage::url()` produces those URLs.
 `TransportInterface` over the structured endpoint; Laravel registers it
 as the `http-mail` transport, plain Symfony apps wire it directly.
 
+### Hyperdrive
+
+Postgres behind a Hyperdrive binding speaks the same D1 query protocol,
+so the PHP runtime is unchanged; the worker side lives behind an
+optional subpath because it needs the `postgres` driver package and the
+`nodejs_compat` flag:
+
+```sh
+npm install postgres
+```
+
+```jsonc
+{
+    "compatibility_flags": ["nodejs_compat"],
+    "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "…" }],
+}
+```
+
+```ts
+import { hyperdrive } from "workers-php/hyperdrive";
+
+AppContainer.outboundByHost = phpOutbound(hyperdrive("HYPERDRIVE"));
+```
+
+PHP talks to the endpoint with `WorkersPhp\Hyperdrive\HttpPgsqlPDO`
+(`ATTR_DRIVER_NAME` reports `pgsql`). Laravel gets a full
+`DB_CONNECTION=hyperdrive` through `CloudflareServiceProvider`
+(`config/database.php`):
+
+```php
+'hyperdrive' => [
+    'driver' => 'hyperdrive',
+    'endpoint' => env('DB_HYPERDRIVE_ENDPOINT', 'http://example.com/HYPERDRIVE'),
+    'database' => env('DB_DATABASE', 'postgres'),
+    'prefix' => '',
+],
+```
+
+`?` placeholders are rewritten to Postgres's `$n` in the worker; write
+jsonb's `?` operator family as `jsonb_exists()`, `jsonb_exists_any()` or
+`jsonb_exists_all()`. Insert ids come from `RETURNING` instead of
+`PDO::lastInsertId()`.
+
 ## Outbound host
 
 `phpOutbound(d1("DB"), r2("FILES"), mail("EMAIL"), log())` routes all of

@@ -9,7 +9,7 @@ export interface Outbound<E = Cloudflare.Env> {
     path: string;
 }
 
-const binding = <T, K extends string>(env: Record<K, T>, name: K): T => {
+export const binding = <T, K extends string>(env: Record<K, T>, name: K): T => {
     const value = env[name];
     if (value === undefined)
         throw new Error(`workers-php: no binding named "${name}"`);
