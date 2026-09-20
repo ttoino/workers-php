@@ -17,7 +17,7 @@ class WaitForBoot
 {
     public function handle(Request $request, Closure $next): Response
     {
-        $flag = env('WORKERS_PHP_READY_FLAG', '/tmp/workers-php-ready');
+        $flag = getenv('WORKERS_PHP_READY_FLAG') ?: '/tmp/workers-php-ready';
 
         if (! file_exists($flag)) {
             $body = $request->expectsJson()
