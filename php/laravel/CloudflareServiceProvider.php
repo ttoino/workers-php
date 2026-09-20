@@ -3,16 +3,19 @@
 namespace WorkersPhp\Laravel;
 
 use Illuminate\Filesystem\FilesystemAdapter;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\ServiceProvider;
 use League\Flysystem\Filesystem;
+use WorkersPhp\KV\KVHttpClient;
+use WorkersPhp\Laravel\Cache\KVStore;
 use WorkersPhp\Laravel\Filesystem\R2Adapter;
 use WorkersPhp\Symfony\Mailer\HttpMailTransport;
 
-// Registers the `r2` filesystem disk and the `http-mail` mailer, which
-// speak plain HTTP to the Cloudflare worker endpoints configured by
-// R2_ENDPOINT and MAIL_ENDPOINT.
+// Registers the `r2` filesystem disk, the `kv` cache store and the
+// `http-mail` mailer, which speak plain HTTP to the Cloudflare worker
+// endpoints configured by R2_ENDPOINT, KV_ENDPOINT and MAIL_ENDPOINT.
 class CloudflareServiceProvider extends ServiceProvider
 {
     public function boot(): void
@@ -22,6 +25,10 @@ class CloudflareServiceProvider extends ServiceProvider
 
             return new FilesystemAdapter(new Filesystem($adapter), $adapter, $config);
         });
+
+        Cache::extend('kv', fn ($app, $config) => Cache::repository(
+            new KVStore(new KVHttpClient($config['endpoint'] ?? ''), $config['prefix'] ?? ''),
+        ));
 
         Mail::extend('http-mail', fn (array $config) => new HttpMailTransport($config['endpoint'] ?? ''));
     }

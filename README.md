@@ -236,6 +236,18 @@ SQLite connection shape even though only `endpoint` is used:
 ],
 ```
 
+**Cache** (`config/cache.php`):
+
+```php
+'kv' => [
+    'driver' => 'kv',
+    'endpoint' => env('KV_ENDPOINT', 'http://example.com/KV'),
+],
+```
+
+then `CACHE_STORE=kv`. TTLs ride KV's native expiration; `flush()` sweeps
+the store's prefix (KV has no atomic clear).
+
 **Filesystem** (`config/filesystems.php`):
 
 ```php
