@@ -15,6 +15,10 @@ export type PhpWorkerEnv<C extends string, B extends string> = Record<
 export interface PhpWorkerOptions<C extends string, B extends string> {
     /** Deadline for holding requests while a cold container boots. */
     bootDeadlineMs?: number;
+    /** Add a queue() handler that forwards batches to the container's consume endpoint. */
+    consume?: boolean;
+    /** Port the consume endpoint listens on inside the container. Default 8081. */
+    consumePort?: number;
     /** Env key holding the Durable Object binding for the container. */
     container: C;
     /** Named Durable Object instance; a singleton suits a single PHP app. */
@@ -88,39 +92,98 @@ export const serveR2 = async (
 };
 
 /**
- * Fetch handler for a single-container PHP app: R2 static serving, boot
- * hold, everything else proxied to the container.
+ * Handler for a single-container PHP app: R2 static serving, boot hold,
+ * everything else proxied to the container. With `consume: true` the
+ * export also handles Cloudflare Queue batches: each message is POSTed
+ * to the container's consume port (internal only, never routed) as
+ * {id, attempts, body}; a 200 acks, anything else retries — honoring
+ * the X-Queue-Delay response header as delaySeconds.
  *
- *   export default phpWorker({ container: "CONTAINER", storage: { bucket: "FILES", prefix: "/storage/" } });
+ *   export default phpWorker({ container: "CONTAINER", storage: { bucket: "FILES", prefix: "/storage/" }, consume: true });
  */
 export const phpWorker = <C extends string, B extends string = never>(
     options: PhpWorkerOptions<C, B>,
-): ExportedHandler<PhpWorkerEnv<C, B>> => ({
-    async fetch(request, env) {
-        if (options.storage) {
-            const bucket: R2Bucket | undefined = env[options.storage.bucket];
-            if (!bucket)
-                throw new Error(
-                    `workers-php: no binding named "${options.storage.bucket}"`,
-                );
-            const served = await serveR2(
-                request,
-                bucket,
-                options.storage.prefix,
-            );
-            if (served) return served;
-        }
-
+): ExportedHandler<PhpWorkerEnv<C, B>> => {
+    const container = (env: PhpWorkerEnv<C, B>) => {
         const namespace: DurableObjectNamespace<Container> | undefined =
             env[options.container];
         if (!namespace)
             throw new Error(
                 `workers-php: no binding named "${options.container}"`,
             );
-        const container = getContainer(namespace, options.name ?? "default");
+        return getContainer(namespace, options.name ?? "default");
+    };
 
-        return holdThroughBoot((req) => container.fetch(req), request, {
-            deadlineMs: options.bootDeadlineMs,
-        });
-    },
-});
+    return {
+        async fetch(request, env) {
+            if (options.storage) {
+                const bucket: R2Bucket | undefined =
+                    env[options.storage.bucket];
+                if (!bucket)
+                    throw new Error(
+                        `workers-php: no binding named "${options.storage.bucket}"`,
+                    );
+                const served = await serveR2(
+                    request,
+                    bucket,
+                    options.storage.prefix,
+                );
+                if (served) return served;
+            }
+
+            return holdThroughBoot(
+                (req) => container(env).fetch(req),
+                request,
+                {
+                    deadlineMs: options.bootDeadlineMs,
+                },
+            );
+        },
+
+        ...(options.consume
+            ? {
+                  async queue(
+                      batch: MessageBatch<unknown>,
+                      env: PhpWorkerEnv<C, B>,
+                  ): Promise<void> {
+                      const port = options.consumePort ?? 8081;
+                      for (const message of batch.messages) {
+                          try {
+                              const response = await container(
+                                  env,
+                              ).containerFetch(
+                                  new Request("http://container/consume", {
+                                      body: JSON.stringify({
+                                          attempts: message.attempts,
+                                          body: message.body,
+                                          id: message.id,
+                                      }),
+                                      headers: {
+                                          "Content-Type": "application/json",
+                                      },
+                                      method: "POST",
+                                  }),
+                                  port,
+                              );
+                              if (response.status === 200) {
+                                  message.ack();
+                              } else {
+                                  const delay = Number(
+                                      response.headers.get("X-Queue-Delay") ??
+                                          0,
+                                  );
+                                  message.retry(
+                                      Number.isFinite(delay) && delay > 0
+                                          ? { delaySeconds: delay }
+                                          : undefined,
+                                  );
+                              }
+                          } catch {
+                              message.retry();
+                          }
+                      }
+                  },
+              }
+            : {}),
+    };
+};

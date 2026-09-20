@@ -358,6 +358,50 @@ and `bulk` work as usual. Consuming runs inside the container through a
 dedicated internal endpoint — see
 [Queue consuming](#queue-consuming).
 
+#### Queue consuming
+
+```ts
+export default phpWorker({
+    container: "CONTAINER",
+    name: "app",
+    storage: { bucket: "FILES", prefix: "/storage/" },
+    consume: true,
+});
+```
+
+With `consume: true` the worker also handles the queue's batches: every
+message is POSTed to the container's consume port (8081 by default,
+override with `consumePort`) as `{id, attempts, body}`. A 200 acks the
+message; anything else retries it, honoring an `X-Queue-Delay` response
+header as `delaySeconds`.
+
+The reference `etc/Caddyfile` serves that port from a dedicated front
+controller, `etc/queue-consumer.php` — never the app's public routes,
+so the endpoint cannot leak. Copy both into the image:
+
+```dockerfile
+COPY node_modules/workers-php/etc/Caddyfile /etc/frankenphp/Caddyfile
+COPY node_modules/workers-php/etc/queue-consumer.php /etc/workers-php/queue-consumer.php
+```
+
+Inside, `WorkersPhp\Laravel\Queue\QueueConsumer` runs the payload
+through Laravel's queue Worker: a successful job acks; a failing one
+retries with the connection's `retry_after` as the delay; exhausting
+`max_tries` marks it failed through Laravel's usual failed-job flow and
+acks, leaving redelivery to the queue's own retry/DLQ configuration:
+
+```php
+'cfqueue' => [
+    'driver' => 'cfqueue',
+    'endpoint' => env('QUEUE_ENDPOINT', 'http://example.com/QUEUE'),
+    'max_tries' => 3,
+    'retry_after' => 30,
+],
+```
+
+Payloads must be Laravel-format — producers on other stacks should use
+a separate queue or a custom front controller.
+
 ## Outbound host
 
 `phpOutbound(d1("DB"), r2("FILES"), mail("EMAIL"), log())` routes all of
