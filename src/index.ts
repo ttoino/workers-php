@@ -6,6 +6,7 @@ export {
     mail,
     PhpContainer,
     phpOutbound,
+    queue,
     r2,
     service,
 } from "./container";

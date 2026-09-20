@@ -120,6 +120,54 @@ export const r2 = <K extends string>(
 });
 
 /**
+ * Queue producer protocol: POST {endpoint}/send with
+ * {body, contentType?, delaySeconds?} → send(); POST
+ * {endpoint}/sendBatch with {messages: [...]} → sendBatch(). Producing
+ * only — consuming happens through the worker's queue() handler.
+ */
+export const queue = <K extends string>(
+    name: K,
+): Outbound<Record<K, Queue<unknown>>> => ({
+    handle: async (request, env) => {
+        try {
+            const target = binding(env, name);
+            const url = new URL(request.url);
+            const body = (await request.json()) as {
+                body?: string;
+                contentType?: "json" | "text";
+                delaySeconds?: number;
+                messages?: {
+                    body: string;
+                    contentType?: "json" | "text";
+                    delaySeconds?: number;
+                }[];
+            };
+            if (url.pathname === "/send") {
+                await target.send(body.body ?? "", {
+                    contentType: body.contentType ?? "text",
+                    delaySeconds: body.delaySeconds,
+                });
+                return new Response("ok");
+            }
+            if (url.pathname === "/sendBatch") {
+                await target.sendBatch(
+                    (body.messages ?? []).map((message) => ({
+                        body: message.body,
+                        contentType: message.contentType ?? "text",
+                        delaySeconds: message.delaySeconds,
+                    })),
+                );
+                return new Response("ok");
+            }
+            return new Response("Not found", { status: 404 });
+        } catch (error) {
+            return Response.json({ error: String(error) }, { status: 500 });
+        }
+    },
+    path: `/${name}`,
+});
+
+/**
  * Analytics Engine protocol: POST {endpoint}/write with
  * {index?, blobs?, doubles?} → writeDataPoint. One index per call, up to
  * 20 blobs (16 KB total) and 20 doubles; fire-and-forget.

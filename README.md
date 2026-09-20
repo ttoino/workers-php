@@ -197,6 +197,9 @@ Map them in your `composer.json`:
 - `WorkersPhp\Analytics\AnalyticsHttpClient` — `write()` data points to
   an Analytics Engine dataset (20 blobs, 20 doubles, one index per
   call).
+- `WorkersPhp\Queue\QueueHttpClient` — `send` / `sendJson` /
+  `sendBatch` to a Cloudflare Queue (producing; see
+  [Queues](#queues)).
 - `WorkersPhp\Mail\MailHttpClient` — structured send (no raw MIME).
 - `WorkersPhp\Session\D1SessionHandler` — `SessionHandlerInterface` backed
   by D1 with a `register()` convenience and first-use table creation;
