@@ -27,7 +27,7 @@ jobs:
         if: github.event_name == 'release'
         run: |
           tag="${GITHUB_REF_NAME#v}"
-          pkg=$(node -p "require('./packages/workers-php/package.json').version")
+          pkg=$(node -p "require('./package.json').version")
           if [ "$tag" != "$pkg" ]; then
               echo "::error::tag ${GITHUB_REF_NAME} does not match workers-php@${pkg}"
               exit 1
@@ -36,9 +36,9 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Publish to npm
         run: |
-          pkg=$(node -p "require('./packages/workers-php/package.json').version")
+          pkg=$(node -p "require('./package.json').version")
           if pnpm view "workers-php@${pkg}" version > /dev/null 2>&1; then
               echo "::notice::workers-php@${pkg} is already on the registry; skipping"
               exit 0
           fi
-          pnpm --filter workers-php publish --access public --no-git-checks
+          pnpm publish --access public --no-git-checks

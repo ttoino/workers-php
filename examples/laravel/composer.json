@@ -27,9 +27,9 @@
             "App\\": "app/",
             "Database\\Factories\\": "database/factories/",
             "Database\\Seeders\\": "database/seeders/",
-            "WorkersPhp\\": "../../packages/workers-php/php/base/",
-            "WorkersPhp\\Laravel\\": "../../packages/workers-php/php/laravel/",
-            "WorkersPhp\\Symfony\\": "../../packages/workers-php/php/symfony/"
+            "WorkersPhp\\": "../../php/base/",
+            "WorkersPhp\\Laravel\\": "../../php/laravel/",
+            "WorkersPhp\\Symfony\\": "../../php/symfony/"
         }
     },
     "autoload-dev": {

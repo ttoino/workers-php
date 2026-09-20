@@ -1,17 +1,36 @@
 {
-    "name": "workers-php-monorepo",
-    "private": true,
+    "name": "workers-php",
+    "version": "1.1.0",
+    "description": "PHP on Cloudflare Workers, Durable Objects and Containers",
+    "license": "Apache-2.0",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/ttoino/workers-php.git"
+    },
     "type": "module",
+    "exports": {
+        ".": "./src/index.ts"
+    },
+    "files": [
+        "src",
+        "php",
+        "etc"
+    ],
     "scripts": {
         "build": "pnpm --filter workers-php-example-laravel run build",
-        "check": "pnpm -r run check",
+        "check": "tsc --noEmit && pnpm --filter workers-php-example-laravel run check",
         "format": "prettier --check .",
         "format:fix": "prettier --write .",
         "lint": "eslint .",
         "lint:fix": "eslint . --fix",
-        "test": "pnpm --filter workers-php run test"
+        "test": "vitest run"
+    },
+    "dependencies": {
+        "@cloudflare/containers": "^0.3.7",
+        "mimetext": "^3.0.27"
     },
     "devDependencies": {
+        "@cloudflare/workers-types": "^4.20250913.0",
         "@eslint/compat": "^2.1.1",
         "@eslint/js": "^10.0.1",
         "eslint": "^10.10.0",
@@ -19,7 +38,9 @@
         "eslint-plugin-perfectionist": "^5.11.1",
         "globals": "^17.12.0",
         "prettier": "^3.9.8",
-        "typescript-eslint": "^8.70.0"
+        "typescript": "^6.0.3",
+        "typescript-eslint": "^8.70.0",
+        "vitest": "^3.2.4"
     },
     "packageManager": "pnpm@12.4.1"
 }

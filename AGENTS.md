@@ -8,15 +8,18 @@ PHP-wasm runtime; `main` is the containers line.
 
 ## Layout
 
-- `packages/workers-php` — the publishable package
-    - `src/` — TypeScript: outbound protocol handlers (`container.ts`),
-      worker fetch handler with boot hold (`worker.ts`)
-    - `php/base|laravel|symfony/` — the PHP runtime trees (composer
-      multi-root PSR-4 map in the package's `composer.json`)
-    - `etc/` — reference `entrypoint.sh` + `Caddyfile`
-    - `tests/` + `php/tests/` — vitest and phpunit suites
-- `examples/laravel` — full Laravel app consuming the workspace
-  package; doubles as the Build check (`wrangler deploy --dry-run`)
+The repository root is the publishable package (npm `workers-php`,
+composer `workers-php/workers-php`):
+
+- `src/` — TypeScript: outbound protocol handlers (`container.ts`),
+  worker fetch handler with boot hold (`worker.ts`)
+- `php/base|laravel|symfony/` — the PHP runtime trees (composer
+  multi-root PSR-4 map in the root `composer.json`)
+- `etc/` — reference `entrypoint.sh` + `Caddyfile`
+- `tests/` + `php/tests/` — vitest and phpunit suites
+- `examples/laravel` — full Laravel app consuming the root package via
+  the pnpm workspace; doubles as the Build check (`wrangler deploy
+--dry-run`)
 
 ## House rules
 
@@ -32,7 +35,7 @@ PHP-wasm runtime; `main` is the containers line.
 
 ```sh
 pnpm run format && pnpm run lint        # repo-wide
-pnpm run check                          # tsc, every package
+pnpm run check                          # tsc, root and example
 pnpm run test                           # vitest
 pnpm run build                          # example wrangler deploy --dry-run
 ```
@@ -42,7 +45,7 @@ pnpm run build                          # example wrangler deploy --dry-run
 workers-php-example-laravel run gen:cf-types` after config changes
   (the file is gitignored; CI generates it before `check`).
 - PHP side has no host runtime: use docker
-  (`docker run --rm -v "$PWD/packages/workers-php:/app" -w /app
+  (`docker run --rm -v "$PWD:/app" -w /app
 <php-image> sh -c 'vendor/bin/phpunit; vendor/bin/pint --test'`).
 - Outbound traffic rides one shared host (`example.com`) with
   per-binding paths (`/DB`); interception happens after DNS resolution,
@@ -55,8 +58,7 @@ workers-php-example-laravel run gen:cf-types` after config changes
 `.github/workflows/php.yml` (pint/phpunit), modeled on the atrellado
 repo conventions. `.github/workflows/cd.yml` publishes `workers-php` to
 npm via OIDC trusted publishing (no tokens): it fires on GitHub releases
-and requires the tag to match `packages/workers-php/package.json`'s
-version.
+and requires the tag to match the root `package.json`'s version.
 
 Releasing: bump the version, commit `Release version X.Y.Z`, push, cut
 the GitHub release `vX.Y.Z`. The trusted publisher on npmjs.com points

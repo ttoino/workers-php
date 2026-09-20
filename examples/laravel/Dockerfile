@@ -1,5 +1,5 @@
 # Build for the workers-php Laravel example. The wrangler build context
-# is the monorepo root so the image can COPY the library's PHP runtime
+# is the repository root so the image can COPY the library's PHP runtime
 # into a layout matching the composer's relative PSR-4 paths.
 #
 # Consumers installing workers-php from npm COPY from
@@ -14,7 +14,7 @@ COPY examples/laravel/composer.json examples/laravel/composer.lock ./
 # Extensions are checked in the runtime stage; the composer image lacks gd.
 RUN composer install --no-dev --no-scripts --no-autoloader --ignore-platform-req=ext-gd
 COPY examples/laravel/ ./
-COPY packages/workers-php/php /srv/packages/workers-php/php
+COPY php /srv/php
 # Local dev trees (vendor/, bootstrap/cache) leak dev packages into the
 # image; a full install against the lockfile restores the prod set.
 RUN rm -f bootstrap/cache/*.php \
@@ -31,7 +31,7 @@ ENV APP_DIR=/srv/examples/laravel
 
 WORKDIR /srv
 COPY --from=vendor /srv /srv
-COPY packages/workers-php/etc/entrypoint.sh /entrypoint.sh
+COPY etc/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 ENTRYPOINT ["/entrypoint.sh"]

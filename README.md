@@ -280,9 +280,9 @@ forward the output to a real collector.
 
 ## Repository layout
 
-- `packages/workers-php` — the library (`src/`, `php/`, `etc/`, tests)
-- `examples/laravel` — a full Laravel app consuming the workspace
-  package; the living reference for the four files above
+- `src/`, `php/`, `etc/`, `tests/` — the library itself
+- `examples/laravel` — a full Laravel app consuming the library; the
+  living reference for the four files above
 
 ## License
 

@@ -6,10 +6,6 @@ on:
   pull_request:
     branches: [main]
 
-defaults:
-  run:
-    working-directory: packages/workers-php
-
 jobs:
   format:
     runs-on: ubuntu-latest
