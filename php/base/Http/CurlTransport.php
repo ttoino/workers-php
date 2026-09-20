@@ -13,7 +13,10 @@ namespace WorkersPhp\Http;
  */
 final class CurlTransport
 {
-    /** @return array{0: int, 1: array<string, string>, 2: string} */
+    /**
+     * @param  string[]  $headers
+     * @return array{0: int, 1: array<string, string>, 2: string}
+     */
     public function __invoke(string $method, string $url, array $headers = [], ?string $body = null): array
     {
         $ch = curl_init($url);

@@ -15,8 +15,10 @@ final class HttpD1PDO extends \PDO
 
     private int $lastInsertId = 0;
 
+    /** @var array{0: string, 1: int|null, 2: string|null} */
     private array $errorInfo = ['', null, null];
 
+    /** @var array<int, mixed> */
     private array $attributes = [
         \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
         \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
@@ -37,17 +39,15 @@ final class HttpD1PDO extends \PDO
         $this->client = is_string($endpoint) ? new D1HttpClient($endpoint) : $endpoint;
     }
 
-    public function prepare(string $query, array $options = []): \PDOStatement|false
+    /** @param array<int, mixed> $options */
+    public function prepare(string $query, array $options = []): \PDOStatement
     {
         return HttpD1PDOStatement::create($this, $query, $this->attributes);
     }
 
-    public function query(string $query, ?int $fetchMode = null, mixed ...$fetchModeArgs): \PDOStatement|false
+    public function query(string $query, ?int $fetchMode = null, mixed ...$fetchModeArgs): \PDOStatement
     {
         $stmt = $this->prepare($query);
-        if ($stmt === false) {
-            return false;
-        }
         if ($fetchMode !== null && $stmt instanceof HttpD1PDOStatement) {
             $stmt->setFetchMode($fetchMode);
         }
@@ -72,7 +72,7 @@ final class HttpD1PDO extends \PDO
         }
     }
 
-    public function lastInsertId(?string $name = null): string|false
+    public function lastInsertId(?string $name = null): string
     {
         return (string) $this->lastInsertId;
     }
@@ -110,7 +110,7 @@ final class HttpD1PDO extends \PDO
         return $this->inTxn;
     }
 
-    public function quote(string $string, int $type = \PDO::PARAM_STR): string|false
+    public function quote(string $string, int $type = \PDO::PARAM_STR): string
     {
         return "'".str_replace("'", "''", $string)."'";
     }
@@ -132,6 +132,7 @@ final class HttpD1PDO extends \PDO
         return $this->errorInfo[0] ?: null;
     }
 
+    /** @return array{0: string, 1: int|null, 2: string|null} */
     public function errorInfo(): array
     {
         return $this->errorInfo;
@@ -142,11 +143,13 @@ final class HttpD1PDO extends \PDO
         return $this->client;
     }
 
+    /** @return array<int, mixed> */
     public function getAttributes(): array
     {
         return $this->attributes;
     }
 
+    /** @param array{0: string, 1: int|null, 2: string|null} $info */
     public function setErrorInfo(array $info): void
     {
         $this->errorInfo = $info;

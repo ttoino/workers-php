@@ -14,6 +14,7 @@ use WorkersPhp\D1\HttpD1PDO;
  */
 class D1SessionHandler implements \SessionHandlerInterface
 {
+    /** @var array<string, bool> */
     private static array $ensured = [];
 
     private HttpD1PDO $pdo;

@@ -8,6 +8,7 @@ use WorkersPhp\Session\D1SessionHandler;
 
 class D1SessionHandlerTest extends TestCase
 {
+    /** @var array<int, array<string, mixed>> */
     private array $calls = [];
 
     private function handler(): D1SessionHandler

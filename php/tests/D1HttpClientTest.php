@@ -8,8 +8,10 @@ use WorkersPhp\D1\HttpD1PDO;
 
 class D1HttpClientTest extends TestCase
 {
+    /** @var array<int, array<string, mixed>> */
     private array $calls = [];
 
+    /** @param array{0: int, 1: array<string, string>, 2: string}|null $response */
     private function client(?array $response = null): D1HttpClient
     {
         $transport = function (string $method, string $url, array $headers, ?string $body) use ($response) {

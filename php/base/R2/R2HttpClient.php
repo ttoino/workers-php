@@ -74,7 +74,10 @@ final class R2HttpClient
         return '/'.str_replace('%2F', '/', rawurlencode(ltrim($key, '/')));
     }
 
-    /** @return array{0: int, 1: array<string, string>, 2: string} */
+    /**
+     * @param  string[]  $headers
+     * @return array{0: int, 1: array<string, string>, 2: string}
+     */
     private function request(string $method, string $path, ?string $body = null, array $headers = []): array
     {
         [$status, $responseHeaders, $responseBody] = ($this->transport)($method, $this->endpoint.$path, $headers, $body);

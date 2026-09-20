@@ -21,7 +21,11 @@ final class D1HttpClient
         $this->transport = $transport ?? new CurlTransport;
     }
 
-    /** Run a single statement, PDO-style (positional or named values). */
+    /**
+     * Run a single statement, PDO-style (positional or named values).
+     *
+     * @param  array<int|string, mixed>  $values
+     */
     public function query(string $sql, array $values = []): D1Result
     {
         [$rewritten, $order] = self::rewriteNamedPlaceholders($sql);
@@ -55,6 +59,10 @@ final class D1HttpClient
         return (int) ($raw['count'] ?? 0);
     }
 
+    /**
+     * @param  array<string, mixed>  $body
+     * @return array<string, mixed>
+     */
     private function post(string $path, array $body): array
     {
         [$code, , $raw] = ($this->transport)(

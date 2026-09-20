@@ -24,7 +24,7 @@ class WaitForBoot
                 ? response()->json(['message' => 'The application is starting, retry shortly.', 'retry_after' => 3], 503)
                 : response(self::page(), 503, ['Content-Type' => 'text/html']);
 
-            return $body->header('Retry-After', 3);
+            return $body->header('Retry-After', '3');
         }
 
         return $next($request);

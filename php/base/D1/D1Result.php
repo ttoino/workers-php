@@ -14,6 +14,7 @@ final class D1Result
         public readonly object $meta,
     ) {}
 
+    /** @param array<string, mixed> $raw */
     public static function fromArray(array $raw): self
     {
         $meta = (object) (isset($raw['meta']) && is_array($raw['meta']) ? $raw['meta'] : []);

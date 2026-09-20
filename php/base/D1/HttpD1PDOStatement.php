@@ -6,6 +6,8 @@ namespace WorkersPhp\D1;
  * PDOStatement-compatible shim. \PDOStatement's constructor is
  * private, so instances are built via
  * ReflectionClass::newInstanceWithoutConstructor() plus a factory.
+ *
+ * @implements \IteratorAggregate<int, mixed>
  */
 final class HttpD1PDOStatement extends \PDOStatement implements \IteratorAggregate
 {
@@ -22,6 +24,7 @@ final class HttpD1PDOStatement extends \PDOStatement implements \IteratorAggrega
     /** @var array<int|string, mixed> */
     private array $pendingBindings = [];
 
+    /** @param array<int, mixed> $attributes */
     public static function create(HttpD1PDO $pdo, string $sql, array $attributes): self
     {
         $obj = (new \ReflectionClass(self::class))->newInstanceWithoutConstructor();
@@ -32,6 +35,7 @@ final class HttpD1PDOStatement extends \PDOStatement implements \IteratorAggrega
         return $obj;
     }
 
+    /** @param array<int|string, mixed>|null $params */
     public function execute(?array $params = null): bool
     {
         try {
@@ -80,17 +84,18 @@ final class HttpD1PDOStatement extends \PDOStatement implements \IteratorAggrega
             return false;
         }
         $this->cursor++;
-        $effective = $mode && $mode !== \PDO::FETCH_DEFAULT ? $mode : $this->fetchMode;
+        $effective = $mode !== \PDO::FETCH_DEFAULT ? $mode : $this->fetchMode;
 
         return $this->shapeRow($row, $effective);
     }
 
+    /** @return array<int, mixed> */
     public function fetchAll(int $mode = \PDO::FETCH_DEFAULT, mixed ...$args): array
     {
         if (! $this->result) {
             return [];
         }
-        $effective = $mode && $mode !== \PDO::FETCH_DEFAULT ? $mode : $this->fetchMode;
+        $effective = $mode !== \PDO::FETCH_DEFAULT ? $mode : $this->fetchMode;
 
         return array_map(fn ($r) => $this->shapeRow($r, $effective), array_slice($this->result->results, $this->cursor));
     }
@@ -157,6 +162,7 @@ final class HttpD1PDOStatement extends \PDOStatement implements \IteratorAggrega
         }
     }
 
+    /** @param array<string, mixed> $row */
     private function shapeRow(array $row, int $mode): mixed
     {
         switch ($mode) {

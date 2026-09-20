@@ -7,8 +7,10 @@ use WorkersPhp\R2\R2HttpClient;
 
 class R2HttpClientTest extends TestCase
 {
+    /** @var array<int, array<string, mixed>> */
     private array $calls = [];
 
+    /** @param array{0: int, 1: array<string, string>, 2: string} $response */
     private function client(array $response): R2HttpClient
     {
         return new R2HttpClient('http://files.app', function ($m, $u, $h, $b) use ($response) {

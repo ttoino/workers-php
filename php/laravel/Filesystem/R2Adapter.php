@@ -167,6 +167,7 @@ class R2Adapter implements FilesystemAdapter
         $this->write($destination, $this->read($source), $config);
     }
 
+    /** @return array<string, string> */
     private function head(string $path, string $metadata): array
     {
         $headers = $this->client->head($path);

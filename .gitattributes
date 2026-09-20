@@ -13,6 +13,7 @@
 /package.json export-ignore
 /pnpm-lock.yaml export-ignore
 /pnpm-workspace.yaml export-ignore
+/phpstan.neon export-ignore
 /phpunit.xml export-ignore
 /src/ export-ignore
 /tests/ export-ignore

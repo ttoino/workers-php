@@ -48,7 +48,7 @@ workers-php-example-laravel run gen:cf-types` after config changes
   (the file is gitignored; CI generates it before `check`).
 - PHP side has no host runtime: use docker
   (`docker run --rm -v "$PWD:/app" -w /app
-<php-image> sh -c 'vendor/bin/phpunit; vendor/bin/pint --test'`).
+<php-image> sh -c 'vendor/bin/phpunit; vendor/bin/pint --test; vendor/bin/phpstan analyse'`).
 - Outbound traffic rides one shared host (`example.com`) with
   per-binding paths (`/DB`); interception happens after DNS resolution,
   so the host must resolve in public DNS — the IANA-reserved apex
