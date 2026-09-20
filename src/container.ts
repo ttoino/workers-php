@@ -120,6 +120,34 @@ export const r2 = <K extends string>(
 });
 
 /**
+ * Analytics Engine protocol: POST {endpoint}/write with
+ * {index?, blobs?, doubles?} → writeDataPoint. One index per call, up to
+ * 20 blobs (16 KB total) and 20 doubles; fire-and-forget.
+ */
+export const analytics = <K extends string>(
+    name: K,
+): Outbound<Record<K, AnalyticsEngineDataset>> => ({
+    handle: async (request, env) => {
+        const dataset = binding(env, name);
+        const url = new URL(request.url);
+        if (url.pathname !== "/write" || request.method !== "POST")
+            return new Response("Not found", { status: 404 });
+        const body = (await request.json()) as {
+            blobs?: string[];
+            doubles?: number[];
+            index?: string;
+        };
+        dataset.writeDataPoint({
+            blobs: body.blobs ?? [],
+            doubles: body.doubles ?? [],
+            indexes: body.index ? [body.index] : [],
+        });
+        return new Response("ok");
+    },
+    path: `/${name}`,
+});
+
+/**
  * Proxy any request to a service binding: {endpoint}/* is forwarded as
  * received (method, path, query, headers, body) and the response comes
  * back verbatim. No PHP client needed — any HTTP stack works:

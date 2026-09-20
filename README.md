@@ -194,6 +194,9 @@ Map them in your `composer.json`:
   (single or batch) / `list`.
 - `WorkersPhp\KV\KVHttpClient` — `get` (value + metadata) / `put` (TTL +
   metadata) / `delete` / `list`.
+- `WorkersPhp\Analytics\AnalyticsHttpClient` — `write()` data points to
+  an Analytics Engine dataset (20 blobs, 20 doubles, one index per
+  call).
 - `WorkersPhp\Mail\MailHttpClient` — structured send (no raw MIME).
 - `WorkersPhp\Session\D1SessionHandler` — `SessionHandlerInterface` backed
   by D1 with a `register()` convenience and first-use table creation;

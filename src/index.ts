@@ -1,4 +1,5 @@
 export {
+    analytics,
     d1,
     kv,
     log,
