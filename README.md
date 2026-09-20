@@ -61,7 +61,7 @@ export default phpWorker({
 
 ```ts
 import { env as workerEnv } from "cloudflare:workers";
-import { d1, log, mail, phpOutbound, PhpContainer, r2 } from "workers-php";
+import { d1, kv, log, mail, phpOutbound, PhpContainer, r2 } from "workers-php";
 
 export class AppContainer extends PhpContainer {
     sleepAfter = "10m";
@@ -76,6 +76,7 @@ export class AppContainer extends PhpContainer {
         MAIL_MAILER: "http-mail",
         MAIL_ENDPOINT: "http://example.com/EMAIL",
         CACHE_STORE: "database",
+        KV_ENDPOINT: "http://example.com/KV",
         SESSION_DRIVER: "cookie",
         QUEUE_CONNECTION: "sync",
         LOG_CHANNEL: "stderr",
@@ -85,6 +86,7 @@ export class AppContainer extends PhpContainer {
 AppContainer.outboundByHost = phpOutbound(
     d1("DB"),
     r2("FILES"),
+    kv("KV"),
     mail("EMAIL"),
     log(),
 );
@@ -115,6 +117,7 @@ AppContainer.outboundByHost = phpOutbound(
         { "binding": "DB", "database_name": "my-app", "database_id": "…" },
     ],
     "r2_buckets": [{ "binding": "FILES", "bucket_name": "my-app" }],
+    "kv_namespaces": [{ "binding": "KV", "id": "…" }],
     "send_email": [
         {
             "name": "EMAIL",
@@ -189,6 +192,8 @@ Map them in your `composer.json`:
   handle is the endpoint; last insert id from D1 meta.
 - `WorkersPhp\R2\R2HttpClient` — `get` / `head` / `put` / `delete`
   (single or batch) / `list`.
+- `WorkersPhp\KV\KVHttpClient` — `get` (value + metadata) / `put` (TTL +
+  metadata) / `delete` / `list`.
 - `WorkersPhp\Mail\MailHttpClient` — structured send (no raw MIME).
 - `WorkersPhp\Session\D1SessionHandler` — `SessionHandlerInterface` backed
   by D1 with a `register()` convenience and first-use table creation;

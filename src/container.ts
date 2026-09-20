@@ -120,6 +120,68 @@ export const r2 = <K extends string>(
 });
 
 /**
+ * REST-ish key-value protocol the PHP KV client expects: GET/PUT/DELETE
+ * on {endpoint}/{key}, plus GET {endpoint}/?list&prefix&limit&cursor.
+ * Metadata and TTL ride the X-KV-Metadata and X-KV-Expiration-Ttl
+ * headers.
+ */
+export const kv = <K extends string>(
+    name: K,
+): Outbound<Record<K, KVNamespace>> => ({
+    handle: async (request, env) => {
+        const store = binding(env, name);
+        const url = new URL(request.url);
+
+        if (url.searchParams.has("list")) {
+            const page = await store.list({
+                cursor: url.searchParams.get("cursor") ?? undefined,
+                limit: Number(url.searchParams.get("limit") ?? 1000),
+                prefix: url.searchParams.get("prefix") ?? undefined,
+            });
+            return Response.json({
+                cursor: page.list_complete ? null : page.cursor,
+                keys: page.keys.map((key) => ({
+                    expiration: key.expiration ?? null,
+                    metadata: key.metadata ?? null,
+                    name: key.name,
+                })),
+                list_complete: page.list_complete,
+            });
+        }
+
+        const key = decodeURIComponent(url.pathname.slice(1));
+        switch (request.method) {
+            case "DELETE":
+                await store.delete(key);
+                return new Response("ok");
+            case "GET": {
+                const { metadata, value } = await store.getWithMetadata(key);
+                if (value === null)
+                    return new Response("Not found", { status: 404 });
+                const headers = new Headers();
+                if (metadata !== null)
+                    headers.set("X-KV-Metadata", JSON.stringify(metadata));
+                return new Response(value, { headers });
+            }
+            case "PUT": {
+                const metadataHeader = request.headers.get("X-KV-Metadata");
+                const ttl = request.headers.get("X-KV-Expiration-Ttl");
+                await store.put(key, await request.text(), {
+                    expirationTtl: ttl ? Number(ttl) : undefined,
+                    metadata: metadataHeader
+                        ? JSON.parse(metadataHeader)
+                        : undefined,
+                });
+                return new Response("ok");
+            }
+            default:
+                return new Response("Method not allowed", { status: 405 });
+        }
+    },
+    path: `/${name}`,
+});
+
+/**
  * Structured mail protocol: POST {endpoint}/send with
  * {from, to[], subject, html?, text?}. Cloudflare's send_email binding
  * takes one recipient per EmailMessage, so one message is built per
