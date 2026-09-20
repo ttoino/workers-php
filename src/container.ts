@@ -120,6 +120,26 @@ export const r2 = <K extends string>(
 });
 
 /**
+ * Proxy any request to a service binding: {endpoint}/* is forwarded as
+ * received (method, path, query, headers, body) and the response comes
+ * back verbatim. No PHP client needed — any HTTP stack works:
+ *
+ *   Http::get(env("API_ENDPOINT")."/users");
+ */
+export const service = <K extends string>(
+    name: K,
+): Outbound<Record<K, Fetcher>> => ({
+    handle: (request, env) => {
+        const target = binding(env, name);
+        const url = new URL(request.url);
+        return target.fetch(
+            new Request(`http://service${url.pathname}${url.search}`, request),
+        );
+    },
+    path: `/${name}`,
+});
+
+/**
  * REST-ish key-value protocol the PHP KV client expects: GET/PUT/DELETE
  * on {endpoint}/{key}, plus GET {endpoint}/?list&prefix&limit&cursor.
  * Metadata and TTL ride the X-KV-Metadata and X-KV-Expiration-Ttl

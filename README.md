@@ -337,6 +337,17 @@ The `log()` handler is a debug sink: POSTs to `/log` land in the worker's
 tail. Drop it for production, or pass `{ sink: "https://…" }` to also
 forward the output to a real collector.
 
+`service("API")` proxies to a service binding verbatim — method, path,
+query and body ride through, no PHP client needed:
+
+```jsonc
+{ "services": [{ "binding": "API", "service": "other-worker" }] }
+```
+
+```php
+Http::get(env("API_ENDPOINT")."/users"); // http://example.com/API/users
+```
+
 ## Caveats
 
 - Migrations run at container boot over HTTP; keep them small.
