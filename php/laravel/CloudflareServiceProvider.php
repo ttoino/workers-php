@@ -5,6 +5,7 @@ namespace WorkersPhp\Laravel;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\ServiceProvider;
 use League\Flysystem\Filesystem;
@@ -13,12 +14,14 @@ use WorkersPhp\KV\KVHttpClient;
 use WorkersPhp\Laravel\Cache\KVStore;
 use WorkersPhp\Laravel\Filesystem\R2Adapter;
 use WorkersPhp\Laravel\Hyperdrive\HyperdriveConnection;
+use WorkersPhp\Laravel\Queue\CfQueueConnector;
 use WorkersPhp\Symfony\Mailer\HttpMailTransport;
 
 // Registers the `hyperdrive` database driver, the `r2` filesystem disk,
-// the `kv` cache store and the `http-mail` mailer, which speak plain
-// HTTP to the Cloudflare worker endpoints configured by
-// DB_HYPERDRIVE_ENDPOINT, R2_ENDPOINT, KV_ENDPOINT and MAIL_ENDPOINT.
+// the `kv` cache store, the `cfqueue` queue driver and the `http-mail`
+// mailer, which speak plain HTTP to the Cloudflare worker endpoints
+// configured by DB_HYPERDRIVE_ENDPOINT, R2_ENDPOINT, KV_ENDPOINT,
+// QUEUE_ENDPOINT and MAIL_ENDPOINT.
 class CloudflareServiceProvider extends ServiceProvider
 {
     public function register(): void
@@ -46,6 +49,8 @@ class CloudflareServiceProvider extends ServiceProvider
         Cache::extend('kv', fn ($app, $config) => Cache::repository(
             new KVStore(new KVHttpClient($config['endpoint'] ?? ''), $config['prefix'] ?? ''),
         ));
+
+        Queue::addConnector('cfqueue', fn () => new CfQueueConnector);
 
         Mail::extend('http-mail', fn (array $config) => new HttpMailTransport($config['endpoint'] ?? ''));
     }

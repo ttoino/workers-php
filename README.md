@@ -61,7 +61,16 @@ export default phpWorker({
 
 ```ts
 import { env as workerEnv } from "cloudflare:workers";
-import { d1, kv, log, mail, phpOutbound, PhpContainer, r2 } from "workers-php";
+import {
+    d1,
+    kv,
+    log,
+    mail,
+    phpOutbound,
+    PhpContainer,
+    queue,
+    r2,
+} from "workers-php";
 
 export class AppContainer extends PhpContainer {
     sleepAfter = "10m";
@@ -78,7 +87,8 @@ export class AppContainer extends PhpContainer {
         CACHE_STORE: "database",
         KV_ENDPOINT: "http://example.com/KV",
         SESSION_DRIVER: "cookie",
-        QUEUE_CONNECTION: "sync",
+        QUEUE_CONNECTION: "cfqueue",
+        QUEUE_ENDPOINT: "http://example.com/QUEUE",
         LOG_CHANNEL: "stderr",
     };
 }
@@ -87,6 +97,7 @@ AppContainer.outboundByHost = phpOutbound(
     d1("DB"),
     r2("FILES"),
     kv("KV"),
+    queue("QUEUE"),
     mail("EMAIL"),
     log(),
 );
@@ -118,6 +129,12 @@ AppContainer.outboundByHost = phpOutbound(
     ],
     "r2_buckets": [{ "binding": "FILES", "bucket_name": "my-app" }],
     "kv_namespaces": [{ "binding": "KV", "id": "…" }],
+    "queues": {
+        "producers": [{ "binding": "QUEUE", "queue": "my-app" }],
+        "consumers": [
+            { "queue": "my-app", "max_batch_size": 10, "max_retries": 3 },
+        ],
+    },
     "send_email": [
         {
             "name": "EMAIL",
@@ -324,6 +341,22 @@ PHP talks to the endpoint with `WorkersPhp\Hyperdrive\HttpPgsqlPDO`
 jsonb's `?` operator family as `jsonb_exists()`, `jsonb_exists_any()` or
 `jsonb_exists_all()`. Insert ids come from `RETURNING` instead of
 `PDO::lastInsertId()`.
+
+### Queues
+
+Producing rides the `cfqueue` driver (`config/queue.php`):
+
+```php
+'cfqueue' => [
+    'driver' => 'cfqueue',
+    'endpoint' => env('QUEUE_ENDPOINT', 'http://example.com/QUEUE'),
+],
+```
+
+then `QUEUE_CONNECTION=cfqueue`. `push`, `later` (via `delaySeconds`)
+and `bulk` work as usual. Consuming runs inside the container through a
+dedicated internal endpoint — see
+[Queue consuming](#queue-consuming).
 
 ## Outbound host
 
