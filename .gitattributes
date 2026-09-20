@@ -1,0 +1,18 @@
+# The composer distribution ships the PHP runtime only; TypeScript
+# sources, the example and dev tooling stay out of the archive.
+/.gitattributes export-ignore
+/.github/ export-ignore
+/.gitignore export-ignore
+/.prettierignore export-ignore
+/.prettierrc export-ignore
+/AGENTS.md export-ignore
+/eslint.config.js export-ignore
+/etc/ export-ignore
+/examples/ export-ignore
+/package.json export-ignore
+/pnpm-lock.yaml export-ignore
+/pnpm-workspace.yaml export-ignore
+/src/ export-ignore
+/tests/ export-ignore
+/tsconfig.json export-ignore
+/vitest.config.ts export-ignore

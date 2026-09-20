@@ -25,6 +25,8 @@ composer `workers-php/workers-php`):
 
 - **Commits**: capitalized imperative (`Add the Laravel example`), no
   conventional-commit prefixes; one logical change per commit.
+- **Release notes**: backticks for code identifiers, no em-dashes, no
+  implementation or dev details; only what consumers need.
 - **TypeScript**: arrow functions only (`const f = () => …`), enforced
   by eslint `func-style`; no `function` declarations.
 - Formatting: prettier (spaces, width 80, double quotes — see

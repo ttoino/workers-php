@@ -1,5 +1,5 @@
 {
-    "name": "workers-php/runtime",
+    "name": "workers-php/workers-php",
     "description": "PHP runtime for workers-php: D1, R2 and Mail HTTP clients plus Laravel and Symfony integrations.",
     "license": "Apache-2.0",
     "require": {
@@ -9,6 +9,10 @@
     "require-dev": {
         "laravel/pint": "^1.13",
         "phpunit/phpunit": "^11.5"
+    },
+    "suggest": {
+        "laravel/framework": "Enables the service providers, D1 connection, R2 filesystem and mailer integrations.",
+        "symfony/mailer": "Enables the WorkersPhp\\Symfony mail transport."
     },
     "autoload": {
         "psr-4": {
@@ -20,6 +24,14 @@
     "autoload-dev": {
         "psr-4": {
             "WorkersPhp\\Tests\\": "php/tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "WorkersPhp\\Laravel\\CloudflareServiceProvider",
+                "WorkersPhp\\Laravel\\D1ServiceProvider"
+            ]
         }
     },
     "scripts": {

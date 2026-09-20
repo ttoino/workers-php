@@ -30,7 +30,14 @@ wait, never as an error page.
 
 ```sh
 npm install workers-php
+composer require workers-php/workers-php
 ```
+
+The worker side ships on npm; the PHP runtime ships on Packagist under
+the same name. Composer consumers get the runtime in `vendor/`; apps
+without composer can autoload it from `node_modules/workers-php/php/`
+instead. On Laravel, the service providers register themselves via
+package discovery.
 
 You write four files; the library ships everything else (PHP runtime,
 reference entrypoint, Caddy config) inside the npm package.
