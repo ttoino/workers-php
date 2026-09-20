@@ -183,9 +183,9 @@ Map them in your `composer.json`:
 - `WorkersPhp\R2\R2HttpClient` — `get` / `head` / `put` / `delete`
   (single or batch) / `list`.
 - `WorkersPhp\Mail\MailHttpClient` — structured send (no raw MIME).
-- `WorkersPhp\Session\D1SessionHandler` — `SessionHandlerInterface` on D1
-  (container filesystems are ephemeral); the storage table is created on
-  first use, so `D1SessionHandler::register($endpoint)` is the whole setup.
+- `WorkersPhp\Session\D1SessionHandler` — `SessionHandlerInterface` backed
+  by D1 with a `register()` convenience and first-use table creation;
+  durable sessions in one line.
 
 Every client takes an optional transport callable:
 
