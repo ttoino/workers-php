@@ -10,3 +10,4 @@ vendor/
 worker-configuration.d.ts
 public/build/
 storage/
+.phpunit.result.cache
