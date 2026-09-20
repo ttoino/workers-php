@@ -402,6 +402,44 @@ acks, leaving redelivery to the queue's own retry/DLQ configuration:
 Payloads must be Laravel-format — producers on other stacks should use
 a separate queue or a custom front controller.
 
+#### Scheduled tasks
+
+```ts
+export default phpWorker({
+    container: "CONTAINER",
+    name: "app",
+    storage: { bucket: "FILES", prefix: "/storage/" },
+    schedule: true,
+});
+```
+
+```jsonc
+// wrangler.jsonc
+"triggers": { "crons": ["0 0 * * *"] },
+```
+
+With `schedule: true` the worker also handles Cron Triggers: every
+event POSTs `/schedule` on the container's internal port (the same one
+queue consuming uses, never routed publicly), holding through the boot
+window for up to `scheduleDeadlineMs` — 120 seconds by default, since a
+cold boot plus migrations outlasts a web request's patience. A non-200
+response throws so the event shows as failed in the logs. The reference
+`etc/Caddyfile` routes `/schedule` to `etc/schedule-runner.php`, which
+runs `php artisan schedule:run`; copy it alongside the consumer:
+
+```dockerfile
+COPY node_modules/workers-php/etc/schedule-runner.php /etc/workers-php/schedule-runner.php
+```
+
+The cron is only the tick — `schedule:run` decides what is due, exactly
+like the classic per-minute crontab entry. Laravel matches due-ness
+against the invocation minute, so the trigger should fire at your
+schedule's due-times rather than every minute: a per-minute cron keeps
+the container awake around the clock, while a daily `0 0 * * *` boots
+it once a night, runs the `->daily()` tasks, and lets it sleep again.
+Several crons in one array cover differing due-times; two firing the
+same minute run the task twice.
+
 ## Outbound host
 
 `phpOutbound(d1("DB"), r2("FILES"), mail("EMAIL"), log())` routes all of

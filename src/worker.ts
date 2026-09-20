@@ -23,6 +23,10 @@ export interface PhpWorkerOptions<C extends string, B extends string> {
     container: C;
     /** Named Durable Object instance; a singleton suits a single PHP app. */
     name?: string;
+    /** Add a scheduled() handler that forwards Cron Triggers to the container's schedule endpoint. */
+    schedule?: boolean;
+    /** Deadline for holding a cron event while a cold container boots. Default 120000. */
+    scheduleDeadlineMs?: number;
     /** Serve objects from an R2 bucket under a URL prefix, no boot needed. */
     storage?: { bucket: B; prefix: string };
 }
@@ -97,7 +101,11 @@ export const serveR2 = async (
  * export also handles Cloudflare Queue batches: each message is POSTed
  * to the container's consume port (internal only, never routed) as
  * {id, attempts, body}; a 200 acks, anything else retries — honoring
- * the X-Queue-Delay response header as delaySeconds.
+ * the X-Queue-Delay response header as delaySeconds. With `schedule: true`
+ * the export also handles Cron Triggers: each event POSTs /schedule on
+ * the same internal port, holding through the boot window for up to
+ * `scheduleDeadlineMs`; a non-200 response throws so the event shows as
+ * failed in logs.
  *
  *   export default phpWorker({ container: "CONTAINER", storage: { bucket: "FILES", prefix: "/storage/" }, consume: true });
  */
@@ -182,6 +190,31 @@ export const phpWorker = <C extends string, B extends string = never>(
                               message.retry();
                           }
                       }
+                  },
+              }
+            : {}),
+
+        ...(options.schedule
+            ? {
+                  async scheduled(
+                      _controller: ScheduledController,
+                      env: PhpWorkerEnv<C, B>,
+                  ): Promise<void> {
+                      const port = options.consumePort ?? 8081;
+                      const response = await holdThroughBoot(
+                          (request) =>
+                              container(env).containerFetch(request, port),
+                          new Request("http://container/schedule", {
+                              method: "POST",
+                          }),
+                          {
+                              deadlineMs: options.scheduleDeadlineMs ?? 120_000,
+                          },
+                      );
+                      if (response.status !== 200)
+                          throw new Error(
+                              `workers-php: schedule run failed with status ${response.status}`,
+                          );
                   },
               }
             : {}),

@@ -17,10 +17,14 @@
 	php_server
 }
 
-# Internal queue consume endpoint; never routed publicly. The app
-# worker forwards Cloudflare Queue messages here when `consume` is on.
+# Internal consume endpoints; never routed publicly. The app worker
+# forwards Cloudflare Queue messages and Cron Triggers here when
+# `consume`/`schedule` are on.
 :{$QUEUE_CONSUME_PORT:8081} {
 	root {$QUEUE_CONSUME_ROOT:/etc/workers-php}
-	rewrite * /queue-consumer.php
+	@schedule path /schedule
+	rewrite @schedule /schedule-runner.php
+	@consume not path /schedule
+	rewrite @consume /queue-consumer.php
 	php_server
 }
