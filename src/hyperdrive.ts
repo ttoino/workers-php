@@ -1,6 +1,7 @@
 import postgres from "postgres";
 
 import type { Outbound } from "./container";
+import type { KeyOf } from "./env";
 
 import { binding } from "./container";
 
@@ -16,7 +17,7 @@ import { binding } from "./container";
  * written as jsonb_exists(), jsonb_exists_any() or jsonb_exists_all().
  * Requires the `postgres` package and the `nodejs_compat` flag.
  */
-export const hyperdrive = <K extends string>(
+export const hyperdrive = <K extends KeyOf<Hyperdrive>>(
     name: K,
 ): Outbound<Record<K, Hyperdrive>> => ({
     handle: async (request, env) => {

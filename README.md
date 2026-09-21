@@ -57,6 +57,13 @@ export default phpWorker({
 });
 ```
 
+Binding names are typed against the app's generated `Env`
+(`wrangler types` → `worker-configuration.d.ts`): editors autocomplete
+valid names here and in every binding factory (`d1`, `r2`, `kv`,
+`queue`, `mail`, `service`, `analytics`, `hyperdrive`), and a mistyped
+name is a compile error. Without generated types, any string is
+accepted.
+
 ### do.ts
 
 ```ts

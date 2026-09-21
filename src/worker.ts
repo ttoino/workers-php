@@ -1,18 +1,25 @@
 import type { Container } from "@cloudflare/containers";
 
-import { getContainer } from "@cloudflare/containers";
+import type { ContainerKey, KeyOf } from "./env";
 
 export interface BootHoldOptions {
     deadlineMs?: number;
 }
 
+/**
+ * @deprecated phpWorker now types over the app's generated `Env`
+ * directly; this alias remains for existing imports only.
+ */
 export type PhpWorkerEnv<C extends string, B extends string> = Record<
     B,
     R2Bucket
 > &
     Record<C, DurableObjectNamespace<Container>>;
 
-export interface PhpWorkerOptions<C extends string, B extends string> {
+export interface PhpWorkerOptions<
+    S extends ContainerKey = ContainerKey,
+    R extends R2Key = never,
+> {
     /** Deadline for holding requests while a cold container boots. */
     bootDeadlineMs?: number;
     /** Add a queue() handler that forwards batches to the container's consume endpoint. */
@@ -20,7 +27,7 @@ export interface PhpWorkerOptions<C extends string, B extends string> {
     /** Port the consume endpoint listens on inside the container. Default 8081. */
     consumePort?: number;
     /** Env key holding the Durable Object binding for the container. */
-    container: C;
+    container: S;
     /** Named Durable Object instance; a singleton suits a single PHP app. */
     name?: string;
     /** Add a scheduled() handler that forwards Cron Triggers to the container's schedule endpoint. */
@@ -28,8 +35,27 @@ export interface PhpWorkerOptions<C extends string, B extends string> {
     /** Deadline for holding a cron event while a cold container boots. Default 120000. */
     scheduleDeadlineMs?: number;
     /** Serve objects from an R2 bucket under a URL prefix, no boot needed. */
-    storage?: { bucket: B; prefix: string };
+    storage?: { bucket: R; prefix: string };
 }
+
+/**
+ * The RPC brand makes DurableObjectNamespace flavors mutually invariant,
+ * so phpWorker types the container binding through these minimal
+ * structural interfaces instead: every container flavor satisfies them
+ * (the RPC-projected stub methods are bivariantly compatible), without
+ * the deep instantiation a flavor-typed constraint triggers.
+ */
+interface ContainerNamespace {
+    get(id: DurableObjectId): ContainerStub;
+    idFromName(name: string): DurableObjectId;
+}
+
+interface ContainerStub {
+    containerFetch(request: Request, port?: number): Promise<Response>;
+    fetch(request: Request): Promise<Response>;
+}
+
+type R2Key = KeyOf<R2Bucket>;
 
 /**
  * A cold container answers 503 + Retry-After until its entrypoint finishes;
@@ -109,24 +135,28 @@ export const serveR2 = async (
  *
  *   export default phpWorker({ container: "CONTAINER", storage: { bucket: "FILES", prefix: "/storage/" }, consume: true });
  */
-export const phpWorker = <C extends string, B extends string = never>(
-    options: PhpWorkerOptions<C, B>,
-): ExportedHandler<PhpWorkerEnv<C, B>> => {
-    const container = (env: PhpWorkerEnv<C, B>) => {
-        const namespace: DurableObjectNamespace<Container> | undefined =
-            env[options.container];
+export const phpWorker = <
+    S extends ContainerKey,
+    R extends R2Key = never,
+    E extends Cloudflare.Env &
+        Record<R, R2Bucket> &
+        Record<S, ContainerNamespace> = Env,
+>(
+    options: PhpWorkerOptions<S, R>,
+): ExportedHandler<E> => {
+    const container = (env: E) => {
+        const namespace = env[options.container];
         if (!namespace)
             throw new Error(
                 `workers-php: no binding named "${options.container}"`,
             );
-        return getContainer(namespace, options.name ?? "default");
+        return namespace.get(namespace.idFromName(options.name ?? "default"));
     };
 
     return {
         async fetch(request, env) {
             if (options.storage) {
-                const bucket: R2Bucket | undefined =
-                    env[options.storage.bucket];
+                const bucket = env[options.storage.bucket];
                 if (!bucket)
                     throw new Error(
                         `workers-php: no binding named "${options.storage.bucket}"`,
@@ -152,7 +182,7 @@ export const phpWorker = <C extends string, B extends string = never>(
             ? {
                   async queue(
                       batch: MessageBatch<unknown>,
-                      env: PhpWorkerEnv<C, B>,
+                      env: E,
                   ): Promise<void> {
                       const port = options.consumePort ?? 8081;
                       for (const message of batch.messages) {
@@ -198,7 +228,7 @@ export const phpWorker = <C extends string, B extends string = never>(
             ? {
                   async scheduled(
                       _controller: ScheduledController,
-                      env: PhpWorkerEnv<C, B>,
+                      env: E,
                   ): Promise<void> {
                       const port = options.consumePort ?? 8081;
                       const response = await holdThroughBoot(

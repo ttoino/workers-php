@@ -360,8 +360,8 @@ describe("phpOutbound", () => {
     });
 
     it("throws on duplicate paths", () => {
-        expect(() => phpOutbound(d1("DATA"), r2("DATA"))).toThrow(
-            'workers-php: duplicate outbound path "/DATA"',
+        expect(() => phpOutbound(d1("DB"), d1("DB"))).toThrow(
+            'workers-php: duplicate outbound path "/DB"',
         );
     });
 });

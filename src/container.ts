@@ -4,6 +4,8 @@ import { Container } from "@cloudflare/containers";
 import { EmailMessage } from "cloudflare:email";
 import { createMimeMessage } from "mimetext";
 
+import type { KeyOf } from "./env";
+
 export interface Outbound<E = Cloudflare.Env> {
     handle: OutboundHandler<E>;
     path: string;
@@ -23,7 +25,7 @@ export const binding = <T, K extends string>(env: Record<K, T>, name: K): T => {
  *   POST {endpoint}/query  {"sql": "...", "params": [...]}  → D1 result JSON
  *   POST {endpoint}/exec   {"sql": "..."}                   → {"count": n}
  */
-export const d1 = <K extends string>(
+export const d1 = <K extends KeyOf<D1Database>>(
     name: K,
 ): Outbound<Record<K, D1Database>> => ({
     handle: async (request, env) => {
@@ -57,7 +59,7 @@ export const d1 = <K extends string>(
  * on {endpoint}/{key}, plus GET {endpoint}/?list&prefix&limit&cursor for
  * pagination. DELETE with a JSON body deletes a batch of keys.
  */
-export const r2 = <K extends string>(
+export const r2 = <K extends KeyOf<R2Bucket>>(
     name: K,
 ): Outbound<Record<K, R2Bucket>> => ({
     handle: async (request, env) => {
@@ -125,7 +127,7 @@ export const r2 = <K extends string>(
  * {endpoint}/sendBatch with {messages: [...]} → sendBatch(). Producing
  * only — consuming happens through the worker's queue() handler.
  */
-export const queue = <K extends string>(
+export const queue = <K extends KeyOf<Queue>>(
     name: K,
 ): Outbound<Record<K, Queue<unknown>>> => ({
     handle: async (request, env) => {
@@ -172,7 +174,7 @@ export const queue = <K extends string>(
  * {index?, blobs?, doubles?} → writeDataPoint. One index per call, up to
  * 20 blobs (16 KB total) and 20 doubles; fire-and-forget.
  */
-export const analytics = <K extends string>(
+export const analytics = <K extends KeyOf<AnalyticsEngineDataset>>(
     name: K,
 ): Outbound<Record<K, AnalyticsEngineDataset>> => ({
     handle: async (request, env) => {
@@ -202,7 +204,7 @@ export const analytics = <K extends string>(
  *
  *   Http::get(env("API_ENDPOINT")."/users");
  */
-export const service = <K extends string>(
+export const service = <K extends KeyOf<Fetcher>>(
     name: K,
 ): Outbound<Record<K, Fetcher>> => ({
     handle: (request, env) => {
@@ -221,7 +223,7 @@ export const service = <K extends string>(
  * Metadata and TTL ride the X-KV-Metadata and X-KV-Expiration-Ttl
  * headers.
  */
-export const kv = <K extends string>(
+export const kv = <K extends KeyOf<KVNamespace>>(
     name: K,
 ): Outbound<Record<K, KVNamespace>> => ({
     handle: async (request, env) => {
@@ -283,7 +285,7 @@ export const kv = <K extends string>(
  * takes one recipient per EmailMessage, so one message is built per
  * address.
  */
-export const mail = <K extends string>(
+export const mail = <K extends KeyOf<SendEmail>>(
     name: K,
 ): Outbound<Record<K, SendEmail>> => ({
     handle: async (request, env) => {
