@@ -1,6 +1,6 @@
 {
     "$schema": "node_modules/wrangler/config-schema.json",
-    "name": "workers-php-example-scratch",
+    "name": "workers-php-example-laravel",
     "main": "worker.ts",
     "compatibility_date": "2026-09-15",
     "compatibility_flags": ["nodejs_compat"],
@@ -38,7 +38,7 @@
         {
             "binding": "DB",
             "database_name": "workers-php-example-laravel",
-            "database_id": "4ab52384-420f-421e-bfe4-001f658a0abe",
+            "database_id": "00000000-0000-0000-0000-000000000000",
         },
     ],
     "r2_buckets": [
