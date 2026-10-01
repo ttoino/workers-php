@@ -490,9 +490,10 @@ export class PhpContainer<E = Cloudflare.Env> extends DurableObject<E> {
         super(ctx, env);
         const container = ctx.container;
         if (container?.running) {
-            ctx.blockConcurrencyWhile(() =>
-                container.setInactivityTimeout(this.inactivityTimeoutMs),
-            );
+            ctx.blockConcurrencyWhile(async () => {
+                await this.registerIntercepts(container);
+                await container.setInactivityTimeout(this.inactivityTimeoutMs);
+            });
             this.monitor(container);
         }
     }
@@ -530,19 +531,7 @@ export class PhpContainer<E = Cloudflare.Env> extends DurableObject<E> {
             );
         if (container.running) return container;
 
-        const handlers = outboundRegistry.get(this.constructor.name) ?? {};
-        for (const host of Object.keys(handlers)) {
-            if (!hasPhpOutbound(this.ctx.exports))
-                throw new Error(
-                    'workers-php: export PhpOutbound from "workers-php" in your worker entrypoint',
-                );
-            await container.interceptOutboundHttp(
-                host,
-                this.ctx.exports.PhpOutbound({
-                    props: { className: this.constructor.name, host },
-                }),
-            );
-        }
+        await this.registerIntercepts(container);
 
         const image = container.images[this.image];
         if (image === undefined)
@@ -582,5 +571,23 @@ export class PhpContainer<E = Cloudflare.Env> extends DurableObject<E> {
                     }
                 }),
         );
+    }
+
+    // Intercepts last until the container stops: register them on a fresh
+    // start and whenever the Durable Object restarts over a live container.
+    private async registerIntercepts(container: Container): Promise<void> {
+        const handlers = outboundRegistry.get(this.constructor.name) ?? {};
+        for (const host of Object.keys(handlers)) {
+            if (!hasPhpOutbound(this.ctx.exports))
+                throw new Error(
+                    'workers-php: export PhpOutbound from "workers-php" in your worker entrypoint',
+                );
+            await container.interceptOutboundHttp(
+                host,
+                this.ctx.exports.PhpOutbound({
+                    props: { className: this.constructor.name, host },
+                }),
+            );
+        }
     }
 }

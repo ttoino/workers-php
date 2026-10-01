@@ -80,13 +80,36 @@ describe("PhpContainer", () => {
         expect(container.start).not.toHaveBeenCalled();
     });
 
-    it("re-arms the inactivity timeout when constructed over a running container", () => {
+    it("re-arms the inactivity timeout when constructed over a running container", async () => {
         const container = mockContainer({ running: true });
 
         new TestContainer(mockCtx(container) as never, {});
+        await new Promise((resolve) => setTimeout(resolve, 0));
 
         expect(container.setInactivityTimeout).toHaveBeenCalledWith(600_000);
         expect(container.monitor).toHaveBeenCalled();
+    });
+
+    it("re-registers intercepts when constructed over a running container", async () => {
+        const proxy = { fetch: vi.fn() };
+        const factory = vi.fn().mockReturnValue(proxy);
+        TestContainer.outboundByHost = phpOutbound(d1("DB"));
+        try {
+            const container = mockContainer({ running: true });
+
+            new TestContainer(
+                mockCtx(container, { PhpOutbound: factory }) as never,
+                {},
+            );
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            expect(container.interceptOutboundHttp).toHaveBeenCalledWith(
+                "example.com",
+                proxy,
+            );
+        } finally {
+            TestContainer.outboundByHost = undefined;
+        }
     });
 
     it("routes internal requests to the header port and strips the header", async () => {
