@@ -20,9 +20,8 @@ export class AppContainer extends PhpContainer {
         R2_ENDPOINT: "http://example.com/FILES",
         SESSION_DRIVER: "cookie",
     };
-    pingEndpoint = "/ping.php";
 
-    sleepAfter = "10m";
+    instance: ContainerStartupOptions["instance"] = "standard-1";
 }
 
 // One shared host for the container's egress: interception keys on the

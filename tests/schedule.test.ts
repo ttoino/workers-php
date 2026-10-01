@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { phpContainerPortHeader } from "../src/container";
 import { phpWorker } from "../src/worker";
 
 const stubEnv = (containerFetch: ReturnType<typeof vi.fn>) =>
     ({
         CONTAINER: {
-            get: () => ({ containerFetch }),
+            get: () => ({ fetch: containerFetch }),
             idFromName: () => "id",
         },
     }) as never;
@@ -29,11 +30,8 @@ describe("phpWorker schedule", () => {
 
         await run(containerFetch);
 
-        const [request, port] = (containerFetch.mock.calls[0] ?? []) as [
-            Request,
-            number,
-        ];
-        expect(port).toBe(8081);
+        const [request] = (containerFetch.mock.calls[0] ?? []) as [Request];
+        expect(request.headers.get(phpContainerPortHeader)).toBe("8081");
         expect(new URL(request.url).pathname).toBe("/schedule");
         expect(request.method).toBe("POST");
     });

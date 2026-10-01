@@ -11,7 +11,9 @@ PHP-wasm runtime; `main` is the containers line.
 The repository root is the publishable package (npm `workers-php`,
 composer `workers-php/workers-php`):
 
-- `src/` — TypeScript: outbound protocol handlers (`container.ts`),
+- `src/` — TypeScript: outbound protocol handlers, `PhpContainer`
+  (native Durable Object container API, `durable_object` scheduling
+  policy) and the `PhpOutbound` loopback entrypoint (`container.ts`),
   worker fetch handler with boot hold (`worker.ts`)
 - `php/base|laravel|symfony/` — the PHP runtime trees (composer
   multi-root PSR-4 map in the root `composer.json`)
@@ -52,7 +54,9 @@ workers-php-example-laravel run gen:cf-types` after config changes
 - Outbound traffic rides one shared host (`example.com`) with
   per-binding paths (`/DB`); interception happens after DNS resolution,
   so the host must resolve in public DNS — the IANA-reserved apex
-  always does. See README § Outbound host.
+  always does. Intercepts bind the `PhpOutbound` worker entrypoint
+  (`ctx.exports`), which consumers must re-export from their worker
+  entrypoint. See README § Outbound host.
 
 ## CI
 

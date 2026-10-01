@@ -45,10 +45,10 @@ reference entrypoint, Caddy config) inside the npm package.
 ### worker.ts
 
 ```ts
-import { ContainerProxy, phpWorker } from "workers-php";
+import { PhpOutbound, phpWorker } from "workers-php";
 
 export { AppContainer } from "./do";
-export { ContainerProxy };
+export { PhpOutbound };
 
 export default phpWorker({
     container: "CONTAINER",
@@ -80,8 +80,7 @@ import {
 } from "workers-php";
 
 export class AppContainer extends PhpContainer {
-    sleepAfter = "10m";
-    pingEndpoint = "/ping.php";
+    instance: ContainerStartupOptions["instance"] = "standard-1";
 
     envVars = {
         APP_KEY: workerEnv.APP_KEY,
@@ -121,10 +120,13 @@ AppContainer.outboundByHost = phpOutbound(
         {
             "name": "app",
             "class_name": "AppContainer",
-            "image": "./Dockerfile",
-            "image_build_context": "../..",
-            "max_instances": 1,
-            "instance_type": "basic",
+            "scheduling_policy": "durable_object",
+            "images": {
+                "app": {
+                    "dockerfile": "./Dockerfile",
+                    "build_context": "../..",
+                },
+            },
         },
     ],
     "durable_objects": {
@@ -150,6 +152,16 @@ AppContainer.outboundByHost = phpOutbound(
     ],
 }
 ```
+
+The container runs on the [`durable_object` scheduling
+policy](https://developers.cloudflare.com/containers/configuration/scheduling-policy/):
+wrangler only declares the named images, and `PhpContainer` picks the
+image, instance size, and entrypoint in code when it starts the container
+— which is also what makes cold starts fast (the policy's scheduling path
+is several times faster than centrally managed rollouts). `max_instances`
+does not exist under this policy; running instances count toward account
+limits. Readiness stays with the PHP runtime's boot gate, which
+`phpWorker` holds against.
 
 ### Dockerfile
 
@@ -481,8 +493,8 @@ Http::get(env("API_ENDPOINT")."/users"); // http://example.com/API/users
 - Migrations run at container boot over HTTP; keep them small.
 - Transactions are no-ops (D1 has none); a `D1Connection` shim aligns
   Laravel 13's SQLite transaction SQL with that.
-- One container instance is one PHP process tree; size `instance_type`
-  and `sleepAfter` accordingly.
+- One container instance is one PHP process tree; size `instance`
+  and `inactivityTimeoutMs` accordingly.
 
 ## Repository layout
 

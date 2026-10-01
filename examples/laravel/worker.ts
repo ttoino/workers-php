@@ -1,7 +1,7 @@
-import { ContainerProxy, phpWorker } from "workers-php";
+import { PhpOutbound, phpWorker } from "workers-php";
 
 export { AppContainer } from "./do";
-export { ContainerProxy };
+export { PhpOutbound };
 
 export default phpWorker({
     container: "CONTAINER",

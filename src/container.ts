@@ -1,7 +1,5 @@
-import type { OutboundHandler } from "@cloudflare/containers";
-
-import { Container } from "@cloudflare/containers";
 import { EmailMessage } from "cloudflare:email";
+import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import { createMimeMessage } from "mimetext";
 
 import type { KeyOf } from "./env";
@@ -10,6 +8,14 @@ export interface Outbound<E = Cloudflare.Env> {
     handle: OutboundHandler<E>;
     path: string;
 }
+
+export type OutboundHandler<E = Cloudflare.Env> = {
+    handle(
+        request: Request,
+        env: E,
+        ctx: ExecutionContext,
+    ): Promise<Response> | Response;
+}["handle"];
 
 export const binding = <T, K extends string>(env: Record<K, T>, name: K): T => {
     const value = env[name];
@@ -399,16 +405,167 @@ export const phpOutbound = (
     };
 };
 
-export class PhpContainer<E = Cloudflare.Env> extends Container<E> {
-    defaultPort = 8080;
+/** Header carrying the target port on internal worker-to-container calls. */
+export const phpContainerPortHeader = "x-workers-php-port";
 
-    override onError(error: unknown): void {
-        console.log(`container error: ${error}`);
+interface PhpOutboundProps {
+    className: string;
+    host: string;
+}
+
+const outboundRegistry = new Map<string, Record<string, OutboundHandler>>();
+
+interface PhpOutboundExports {
+    PhpOutbound: PhpOutboundFactory;
+}
+
+type PhpOutboundFactory = (options: { props: PhpOutboundProps }) => Fetcher;
+
+/**
+ * Loopback entrypoint receiving the container's intercepted outbound
+ * traffic; dispatches to the handler the container class registered with
+ * `outboundByHost`. Export it from the worker entrypoint so the container
+ * can bind it (`export { PhpOutbound } from "workers-php"`).
+ */
+export class PhpOutbound extends WorkerEntrypoint<
+    Cloudflare.Env,
+    PhpOutboundProps
+> {
+    async fetch(request: Request): Promise<Response> {
+        const { className, host } = this.ctx.props;
+        const handler = outboundRegistry.get(className)?.[host];
+        if (!handler)
+            return Response.json(
+                {
+                    error: `workers-php: no outbound handler for host "${host}"`,
+                },
+                { status: 500 },
+            );
+        return handler(request, this.env, this.ctx);
+    }
+}
+
+const hasPhpOutbound = (exports: unknown): exports is PhpOutboundExports =>
+    typeof exports === "object" &&
+    exports !== null &&
+    "PhpOutbound" in exports &&
+    typeof exports.PhpOutbound === "function";
+
+/**
+ * PHP application container on the native Durable Object container API:
+ * the image and instance size are chosen at start (the `durable_object`
+ * scheduling policy), traffic is proxied to `defaultPort`, and outbound
+ * interception routes through the class's `outboundByHost` map. Readiness
+ * is owned by the PHP runtime's boot gate (503 + Retry-After), which
+ * phpWorker holds against.
+ */
+export class PhpContainer<E = Cloudflare.Env> extends DurableObject<E> {
+    static get outboundByHost(): Record<string, OutboundHandler> | undefined {
+        return outboundRegistry.get(this.name);
+    }
+    static set outboundByHost(
+        handlers: Record<string, OutboundHandler> | undefined,
+    ) {
+        if (handlers === undefined) outboundRegistry.delete(this.name);
+        else outboundRegistry.set(this.name, handlers);
+    }
+    /** Container port web traffic proxies to. */
+    defaultPort = 8080;
+    /** Whether the container may reach the public internet. */
+    enableInternet = true;
+    /** Entrypoint override, e.g. to run a different artisan command. */
+    entrypoint?: string[];
+    /** Environment passed to the container at start; undefined values drop. */
+    envVars: Record<string, string | undefined> = {};
+    /** Key into the container's configured `images` map. */
+    image = "app";
+
+    /** How long the container outlives an inactive Durable Object. */
+    inactivityTimeoutMs = 600_000;
+
+    /** Instance size passed to `start()`. */
+    instance: ContainerStartupOptions["instance"] = "lite";
+
+    constructor(ctx: DurableObjectState, env: E) {
+        super(ctx, env);
+        const container = ctx.container;
+        if (container?.running) {
+            ctx.blockConcurrencyWhile(() =>
+                container.setInactivityTimeout(this.inactivityTimeoutMs),
+            );
+            this.monitor(container);
+        }
     }
 
-    override onStop(stop: { exitCode: number; reason: string }): void {
-        console.log(
-            `container stopped: code=${stop.exitCode} reason=${stop.reason}`,
+    async fetch(request: Request): Promise<Response> {
+        const container = await this.ensureRunning();
+        const internal = request.headers.get(phpContainerPortHeader);
+        const headers = new Headers(request.headers);
+        headers.delete(phpContainerPortHeader);
+        return container
+            .getTcpPort(internal === null ? this.defaultPort : Number(internal))
+            .fetch(new Request(request, { headers }));
+    }
+
+    private async ensureRunning(): Promise<Container> {
+        const container = this.ctx.container;
+        if (!container)
+            throw new Error(
+                "workers-php: no container configured for this Durable Object",
+            );
+        if (container.running) return container;
+
+        const handlers = outboundRegistry.get(this.constructor.name) ?? {};
+        for (const host of Object.keys(handlers)) {
+            if (!hasPhpOutbound(this.ctx.exports))
+                throw new Error(
+                    'workers-php: export PhpOutbound from "workers-php" in your worker entrypoint',
+                );
+            await container.interceptOutboundHttp(
+                host,
+                this.ctx.exports.PhpOutbound({
+                    props: { className: this.constructor.name, host },
+                }),
+            );
+        }
+
+        const image = container.images[this.image];
+        if (image === undefined)
+            throw new Error(
+                `workers-php: no image named "${this.image}" in the container's images map`,
+            );
+        container.start({
+            enableInternet: this.enableInternet,
+            entrypoint: this.entrypoint,
+            env: Object.fromEntries(
+                Object.entries(this.envVars).filter(
+                    (entry): entry is [string, string] =>
+                        entry[1] !== undefined,
+                ),
+            ),
+            image,
+            instance: this.instance,
+        });
+        await container.setInactivityTimeout(this.inactivityTimeoutMs);
+        this.monitor(container);
+        return container;
+    }
+
+    private monitor(container: Container): void {
+        this.ctx.waitUntil(
+            container
+                .monitor()
+                .then(() => console.log("container stopped: code=0"))
+                .catch((error: unknown) => {
+                    const exitCode = (error as { exitCode?: unknown }).exitCode;
+                    if (typeof exitCode === "number") {
+                        console.log(
+                            `container stopped: code=${exitCode} reason=${error instanceof Error ? error.message : String(error)}`,
+                        );
+                    } else {
+                        console.log(`container error: ${String(error)}`);
+                    }
+                }),
         );
     }
 }

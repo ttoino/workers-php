@@ -1,6 +1,7 @@
-import type { Container } from "@cloudflare/containers";
-
+import type { PhpContainer } from "./container";
 import type { ContainerKey, KeyOf } from "./env";
+
+import { phpContainerPortHeader } from "./container";
 
 export interface BootHoldOptions {
     deadlineMs?: number;
@@ -14,7 +15,7 @@ export type PhpWorkerEnv<C extends string, B extends string> = Record<
     B,
     R2Bucket
 > &
-    Record<C, DurableObjectNamespace<Container>>;
+    Record<C, DurableObjectNamespace<PhpContainer>>;
 
 export interface PhpWorkerOptions<
     S extends ContainerKey = ContainerKey,
@@ -51,11 +52,16 @@ interface ContainerNamespace {
 }
 
 interface ContainerStub {
-    containerFetch(request: Request, port?: number): Promise<Response>;
     fetch(request: Request): Promise<Response>;
 }
 
 type R2Key = KeyOf<R2Bucket>;
+
+const withoutPortHeader = (source: Headers): Headers => {
+    const headers = new Headers(source);
+    headers.delete(phpContainerPortHeader);
+    return headers;
+};
 
 /**
  * A cold container answers 503 + Retry-After until its entrypoint finishes;
@@ -169,9 +175,17 @@ export const phpWorker = <
                 if (served) return served;
             }
 
+            // Clients must not pick the container port; only the internal
+            // queue/scheduled calls below may set the header.
+            const sanitized = request.headers.has(phpContainerPortHeader)
+                ? new Request(request, {
+                      headers: withoutPortHeader(request.headers),
+                  })
+                : request;
+
             return holdThroughBoot(
                 (req) => container(env).fetch(req),
-                request,
+                sanitized,
                 {
                     deadlineMs: options.bootDeadlineMs,
                 },
@@ -187,9 +201,7 @@ export const phpWorker = <
                       const port = options.consumePort ?? 8081;
                       for (const message of batch.messages) {
                           try {
-                              const response = await container(
-                                  env,
-                              ).containerFetch(
+                              const response = await container(env).fetch(
                                   new Request("http://container/consume", {
                                       body: JSON.stringify({
                                           attempts: message.attempts,
@@ -198,10 +210,11 @@ export const phpWorker = <
                                       }),
                                       headers: {
                                           "Content-Type": "application/json",
+                                          [phpContainerPortHeader]:
+                                              String(port),
                                       },
                                       method: "POST",
                                   }),
-                                  port,
                               );
                               if (response.status === 200) {
                                   message.ack();
@@ -232,9 +245,11 @@ export const phpWorker = <
                   ): Promise<void> {
                       const port = options.consumePort ?? 8081;
                       const response = await holdThroughBoot(
-                          (request) =>
-                              container(env).containerFetch(request, port),
+                          (request) => container(env).fetch(request),
                           new Request("http://container/schedule", {
+                              headers: {
+                                  [phpContainerPortHeader]: String(port),
+                              },
                               method: "POST",
                           }),
                           {

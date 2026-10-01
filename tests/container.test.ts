@@ -1,6 +1,6 @@
-import type { OutboundHandler } from "@cloudflare/containers";
-
 import { describe, expect, it, vi } from "vitest";
+
+import type { OutboundHandler } from "../src/container";
 
 import { d1, log, mail, phpOutbound, r2 } from "../src/container";
 

@@ -11,10 +11,13 @@
         {
             "name": "app",
             "class_name": "AppContainer",
-            "image": "./Dockerfile",
-            "image_build_context": "../..",
-            "max_instances": 1,
-            "instance_type": "basic",
+            "scheduling_policy": "durable_object",
+            "images": {
+                "app": {
+                    "dockerfile": "./Dockerfile",
+                    "build_context": "../..",
+                },
+            },
         },
     ],
     "durable_objects": {

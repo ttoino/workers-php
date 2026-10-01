@@ -212,6 +212,27 @@ describe("phpWorker", () => {
         expect(await response.text()).toBe("from php");
     });
 
+    it("strips a client-supplied port header before proxying", async () => {
+        const containerFetch = vi
+            .fn()
+            .mockResolvedValue(new Response("from php"));
+        const env = {
+            CONTAINER: namespace(containerFetch),
+            FILES: { get: vi.fn() },
+        };
+
+        await callWorker(
+            worker(),
+            new Request("http://x.dev/login", {
+                headers: { "x-workers-php-port": "8081" },
+            }),
+            env,
+        );
+
+        const [forwarded] = (containerFetch.mock.calls[0] ?? []) as [Request];
+        expect(forwarded.headers.get("x-workers-php-port")).toBeNull();
+    });
+
     it("throws a clear error for a missing binding", async () => {
         await expect(
             callWorker(worker(), new Request("http://x.dev/storage/a"), {

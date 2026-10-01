@@ -13,7 +13,7 @@
         "workers-php": "workspace:*"
     },
     "devDependencies": {
-        "@cloudflare/workers-types": "^4.20250913.0",
+        "@cloudflare/workers-types": "^5.20260930.2",
         "typescript": "^6.0.3",
         "wrangler": "^4.37.0"
     }
