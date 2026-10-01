@@ -504,10 +504,14 @@ export class PhpContainer<E = Cloudflare.Env> extends DurableObject<E> {
         const headers = new Headers(request.headers);
         headers.delete(phpContainerPortHeader);
         const port = internal === null ? this.defaultPort : Number(internal);
+        // Container fetchers only accept plain HTTP.
+        const proxied = new Request(request, { headers });
+        const url = new URL(proxied.url);
+        url.protocol = "http:";
         try {
             return await container
                 .getTcpPort(port)
-                .fetch(new Request(request, { headers }));
+                .fetch(new Request(url, proxied));
         } catch (error) {
             // start() returns before the entrypoint listens; answer the boot
             // gate's own 503 so phpWorker holds the request through boot.

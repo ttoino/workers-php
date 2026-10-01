@@ -176,6 +176,24 @@ describe("PhpContainer", () => {
         }
     });
 
+    it("proxies https requests over plain http", async () => {
+        const seen: string[] = [];
+        const container = mockContainer({
+            getTcpPort: vi.fn(() => ({
+                fetch: vi.fn(async (request: Request) => {
+                    seen.push(request.url);
+                    return new Response("ok");
+                }),
+            })),
+            running: true,
+        });
+        const stub = new TestContainer(mockCtx(container) as never, {});
+
+        await stub.fetch(new Request("https://x.dev/login?next=1"));
+
+        expect(seen).toEqual(["http://x.dev/login?next=1"]);
+    });
+
     it("answers the boot gate while the port comes up", async () => {
         const container = mockContainer({
             getTcpPort: vi.fn(() => ({
