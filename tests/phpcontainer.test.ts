@@ -153,6 +153,39 @@ describe("PhpContainer", () => {
         }
     });
 
+    it("answers the boot gate while the port comes up", async () => {
+        const container = mockContainer({
+            getTcpPort: vi.fn(() => ({
+                fetch: vi
+                    .fn()
+                    .mockRejectedValue(
+                        new Error("Container is not listening to port 8080"),
+                    ),
+            })),
+            running: true,
+        });
+        const stub = new TestContainer(mockCtx(container) as never, {});
+
+        const response = await stub.fetch(new Request("http://x.dev/login"));
+
+        expect(response.status).toBe(503);
+        expect(response.headers.get("Retry-After")).toBe("1");
+    });
+
+    it("rethrows port errors that are not the boot race", async () => {
+        const container = mockContainer({
+            getTcpPort: vi.fn(() => ({
+                fetch: vi.fn().mockRejectedValue(new Error("boom")),
+            })),
+            running: true,
+        });
+        const stub = new TestContainer(mockCtx(container) as never, {});
+
+        await expect(
+            stub.fetch(new Request("http://x.dev/login")),
+        ).rejects.toThrow("boom");
+    });
+
     it("logs the exit code when the container stops", async () => {
         vi.spyOn(console, "log").mockImplementation(() => undefined);
         const error = Object.assign(new Error("exited"), { exitCode: 3 });
