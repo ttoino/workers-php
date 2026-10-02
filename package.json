@@ -1,6 +1,6 @@
 {
     "name": "workers-php",
-    "version": "2.0.0",
+    "version": "2.0.1",
     "description": "PHP on Cloudflare Workers, Durable Objects and Containers",
     "license": "Apache-2.0",
     "repository": {
