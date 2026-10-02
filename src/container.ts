@@ -445,6 +445,47 @@ export class PhpOutbound extends WorkerEntrypoint<
     }
 }
 
+// A Durable Object cannot return a subfetch's WebSocket response verbatim:
+// bridge the container socket to a fresh pair and forward frames both ways.
+const bridgeWebSocket = (containerWs: WebSocket): Response => {
+    const pair = new WebSocketPair();
+    const client = pair[0];
+    const server = pair[1];
+    containerWs.accept();
+    server.accept();
+    server.addEventListener("message", async (event) => {
+        try {
+            const data =
+                event.data instanceof Blob
+                    ? await event.data.arrayBuffer()
+                    : event.data;
+            containerWs.send(data);
+        } catch {
+            server.close(1011, "Failed to forward message to container");
+        }
+    });
+    containerWs.addEventListener("message", async (event) => {
+        try {
+            const data =
+                event.data instanceof Blob
+                    ? await event.data.arrayBuffer()
+                    : event.data;
+            server.send(data);
+        } catch {
+            containerWs.close(1011, "Failed to forward message to client");
+        }
+    });
+    const closeCode = (code: number) =>
+        code === 1005 || code === 1006 ? 1000 : code;
+    server.addEventListener("close", (event) =>
+        containerWs.close(closeCode(event.code), event.reason),
+    );
+    containerWs.addEventListener("close", (event) =>
+        server.close(closeCode(event.code), event.reason),
+    );
+    return new Response(null, { status: 101, webSocket: client });
+};
+
 const hasPhpOutbound = (exports: unknown): exports is PhpOutboundExports =>
     typeof exports === "object" &&
     exports !== null &&
@@ -501,17 +542,16 @@ export class PhpContainer<E = Cloudflare.Env> extends DurableObject<E> {
     async fetch(request: Request): Promise<Response> {
         const container = await this.ensureRunning();
         const internal = request.headers.get(phpContainerPortHeader);
-        const headers = new Headers(request.headers);
-        headers.delete(phpContainerPortHeader);
         const port = internal === null ? this.defaultPort : Number(internal);
-        // Container fetchers only accept plain HTTP.
-        const proxied = new Request(request, { headers });
-        const url = new URL(proxied.url);
-        url.protocol = "http:";
+        // Container fetchers only accept plain HTTP. The original request
+        // rides as init so WebSocket upgrades keep their client socket.
+        const url = request.url.replace(/^https:/, "http:");
         try {
-            return await container
+            const response = await container
                 .getTcpPort(port)
-                .fetch(new Request(url, proxied));
+                .fetch(url, request);
+            if (!response.webSocket) return response;
+            return bridgeWebSocket(response.webSocket);
         } catch (error) {
             // start() returns before the entrypoint listens; answer the boot
             // gate's own 503 so phpWorker holds the request through boot.

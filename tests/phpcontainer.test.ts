@@ -23,7 +23,7 @@ const mockContainer = (
 ): MockContainer => ({
     getTcpPort: vi.fn((port: number) => ({
         fetch: vi.fn(
-            async (request: Request) =>
+            async (_url: string, request: Request) =>
                 new Response(
                     `port:${port} header:${request.headers.get(phpContainerPortHeader)}`,
                 ),
@@ -112,7 +112,7 @@ describe("PhpContainer", () => {
         }
     });
 
-    it("routes internal requests to the header port and strips the header", async () => {
+    it("routes internal requests to the header port", async () => {
         const container = mockContainer({ running: true });
         const stub = new TestContainer(mockCtx(container) as never, {});
 
@@ -123,7 +123,7 @@ describe("PhpContainer", () => {
             }),
         );
 
-        expect(await response.text()).toBe("port:8081 header:null");
+        expect(await response.text()).toBe("port:8081 header:8081");
     });
 
     it("throws for an image missing from the images map", async () => {
@@ -176,22 +176,96 @@ describe("PhpContainer", () => {
         }
     });
 
-    it("proxies https requests over plain http", async () => {
-        const seen: string[] = [];
+    it("proxies over plain http with the original request as init", async () => {
+        const seen: [string, Request][] = [];
         const container = mockContainer({
             getTcpPort: vi.fn(() => ({
-                fetch: vi.fn(async (request: Request) => {
-                    seen.push(request.url);
+                fetch: vi.fn(async (url: string, request: Request) => {
+                    seen.push([url, request]);
                     return new Response("ok");
                 }),
             })),
             running: true,
         });
         const stub = new TestContainer(mockCtx(container) as never, {});
+        const request = new Request("https://x.dev/login?next=1");
 
-        await stub.fetch(new Request("https://x.dev/login?next=1"));
+        await stub.fetch(request);
 
-        expect(seen).toEqual(["http://x.dev/login?next=1"]);
+        expect(seen).toEqual([["http://x.dev/login?next=1", request]]);
+    });
+
+    it("bridges websocket upgrades to a fresh pair", async () => {
+        interface FakeSocket {
+            accept: ReturnType<typeof vi.fn>;
+            addEventListener: ReturnType<typeof vi.fn>;
+            close: ReturnType<typeof vi.fn>;
+            emit: (type: string, data: unknown) => void;
+            send: ReturnType<typeof vi.fn>;
+        }
+        const sockets: FakeSocket[] = [];
+        const socket = (): FakeSocket => {
+            const listeners = new Map<
+                string,
+                ((event: { data: unknown }) => void)[]
+            >();
+            const fake = {
+                accept: vi.fn(),
+                addEventListener: vi.fn(
+                    (
+                        type: string,
+                        listener: (event: { data: unknown }) => void,
+                    ) =>
+                        listeners.set(type, [
+                            ...(listeners.get(type) ?? []),
+                            listener,
+                        ]),
+                ),
+                close: vi.fn(),
+                emit: (type: string, data: unknown) =>
+                    listeners
+                        .get(type)
+                        ?.forEach((listener) => listener({ data })),
+                send: vi.fn(),
+            };
+            sockets.push(fake);
+            return fake;
+        };
+        vi.stubGlobal(
+            "WebSocketPair",
+            class {
+                0 = socket();
+                1 = socket();
+            },
+        );
+        const containerWs = socket();
+        // A plain object: only webSocket is read before the 101 Response is
+        // constructed, which this Node test environment rejects.
+        const response = { webSocket: containerWs };
+        const container = mockContainer({
+            getTcpPort: vi.fn(() => ({
+                fetch: vi.fn(async () => response),
+            })),
+            running: true,
+        });
+        const stub = new TestContainer(mockCtx(container) as never, {});
+
+        await expect(
+            stub.fetch(
+                new Request("https://x.dev/app/key", {
+                    headers: { upgrade: "websocket" },
+                }),
+            ),
+        ).rejects.toThrow();
+        expect(containerWs.accept).toHaveBeenCalled();
+        containerWs.emit("message", "ping");
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const server = sockets.at(2);
+        expect(server?.send).toHaveBeenCalledWith("ping");
+        server?.emit("message", "pong");
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(containerWs.send).toHaveBeenCalledWith("pong");
+        vi.unstubAllGlobals();
     });
 
     it("answers the boot gate while the port comes up", async () => {
